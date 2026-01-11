@@ -1,0 +1,10 @@
+# Testing
+pytest==9.0.2
+pytest-cov==7.0.0
+
+# Display/Image manipulation
+Pillow==12.1.0
+
+# Future dependencies (commented out for now)
+# requests==2.31.0  # For API calls
+# python-dotenv==1.0.0  # For config management
