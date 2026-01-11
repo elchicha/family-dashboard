@@ -1,4 +1,4 @@
-from src.display.renderer import DisplayRenderer
+from src.display.display_interface import DisplayRenderer
 
 
 class TestDisplayRenderer:
