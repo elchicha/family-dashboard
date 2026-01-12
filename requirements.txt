@@ -1,10 +1,11 @@
 # Testing
 pytest==9.0.2
 pytest-cov==7.0.0
+pytest-mock==3.14.1
 
 # Display/Image manipulation
 Pillow==12.1.0
 
-# Future dependencies (commented out for now)
-# requests==2.31.0  # For API calls
+# Dependencies
+requests==2.32.5
 # python-dotenv==1.0.0  # For config management
