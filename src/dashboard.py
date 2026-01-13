@@ -9,3 +9,10 @@ class Dashboard:
 
     def add_widget(self, widget, x_pos: int, y_pos: int):
         self.widgets.append((widget, x_pos, y_pos))
+
+    def render(self):
+        self.display.clear()
+        for widget, x_pos, y_pos in self.widgets:
+            widget.render()
+
+        self.display.refresh()
