@@ -24,3 +24,22 @@ class TestDashboard:
         dashboard.add_widget(mock_widget, x_pos=100, y_pos=50)
         assert len(dashboard.widgets) == 1
         assert dashboard.widgets[0] == (mock_widget, 100, 50)
+
+    def test_dashboard_renders_all_widget(self, mock_display, mocker):
+        """Dashboard should render all widgets and refresh the display"""
+        dashboard = Dashboard(display=mock_display)
+
+        mock_widget1 = mocker.Mock()
+        mock_widget2 = mocker.Mock()
+
+        dashboard.add_widget(mock_widget1, x_pos=0, y_pos=0)
+        dashboard.add_widget(mock_widget2, x_pos=400, y_pos=0)
+
+        dashboard.render()
+
+        mock_display.clear.assert_called_once()
+
+        mock_widget1.render.assert_called_once()
+        mock_widget2.render.assert_called_once()
+
+        mock_display.refresh.assert_called_once()
