@@ -36,3 +36,36 @@ class TestCalendarWidget:
         assert "Standup" in all_draw_calls
         assert "09:00" in all_draw_calls
         assert "Lunch" in all_draw_calls
+
+    def test_events_render_at_different_y_positions(
+        self, mock_display, mock_calendar_service
+    ):
+        """Events should render at different Y coordinates so they don't overlap"""
+        mock_calendar_service.get_todays_events.return_value = [
+            {"name": "First Event", "time": "09:00"},
+            {"name": "Second Event", "time": "10:00"},
+            {"name": "Third Event", "time": "11:00"},
+        ]
+
+        widget = CalendarWidget(mock_display, mock_calendar_service)
+        widget.render()
+
+        # Get all the draw_text calls
+        calls = mock_display.draw_text.call_args_list
+
+        # Extract Y positions (assuming draw_text is called with positional args x, y, text)
+        # calls look like: call(x, y, text) or call(x=.., y=.., text=..)
+        y_positions = []
+        for call in calls:
+            args, kwargs = call
+            if len(args) >= 2:
+                y_positions.append(args[1])  # Second positional arg is y
+            else:
+                y_positions.append(kwargs.get("y"))  # Or get from kwargs
+
+        # All Y positions should be different
+        assert len(y_positions) == 3
+        assert len(set(y_positions)) == 3  # 3 unique values
+
+        # Y positions should increase (events stack downward)
+        assert y_positions[0] < y_positions[1] < y_positions[2]
