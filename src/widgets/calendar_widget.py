@@ -11,6 +11,9 @@ class CalendarWidget:
 
     def render(self):
         events = self.calendar_service.get_todays_events()
+        y_pos = 0
+        y_offset = 20
         for event in events:
             event_detail = f"{event["time"]}: {event["name"]}"
-            self.display.draw_text(0, 0, event_detail)
+            self.display.draw_text(0, y_pos, event_detail)
+            y_pos += y_offset
