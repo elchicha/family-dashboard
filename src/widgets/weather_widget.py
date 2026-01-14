@@ -1,13 +1,10 @@
 from src.display.display_interface import DisplayInterface
-from src.services.weather_service import WeatherService
 from src.widgets.widget_interface import WidgetInterface
 
 
 class WeatherWidget(WidgetInterface):
 
-    def __init__(
-        self, display: DisplayInterface, weather_service: WeatherService, city: str
-    ):
+    def __init__(self, display: DisplayInterface, weather_service, city: str):
         self.display = display
         self.weather_service = weather_service
         self.city = city

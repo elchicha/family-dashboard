@@ -1,12 +1,10 @@
-from src.display.display_interface import DisplayInterface
-from src.services.calendar_service import CalendarService
 from src.widgets.widget_interface import WidgetInterface
 
 
 class CalendarWidget(WidgetInterface):
     """A Calendar Widget that uses the calendar and display services to render relevant information in the dashboard."""
 
-    def __init__(self, display: DisplayInterface, calendar_service: CalendarService):
+    def __init__(self, display, calendar_service):
         self.display = display
         self.calendar_service = calendar_service
 
