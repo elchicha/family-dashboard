@@ -1,7 +1,22 @@
+# PRIVACY: Never commit actual config or data
+config.yaml
+data/
+*.json
+!config.example.yaml  # Template is safe to commit
+
+# API keys and secrets
+.env
+*.key
+*.pem
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
 .idea/
 .venv/
 
-__pycache__/
-*.py[cod]
-
 .env
+
+*.png
+dashboard_*.png
