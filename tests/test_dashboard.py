@@ -43,3 +43,17 @@ class TestDashboard:
         mock_widget2.render.assert_called_once()
 
         mock_display.refresh.assert_called_once()
+
+    def test_dashboard_passes_position_offsets_to_widgets(self, mock_display, mocker):
+        """Dashboard should tell widgets where to render"""
+        dashboard = Dashboard(display=mock_display)
+
+        mock_widget = mocker.Mock()
+
+        dashboard.add_widget(mock_widget, x_pos=100, y_pos=50)
+        dashboard.render()
+
+        mock_widget.render.assert_called_once()
+        call_kwargs = mock_widget.render.call_args.kwargs
+        assert call_kwargs.get("x_offset") == 100
+        assert call_kwargs.get("y_offset") == 50
