@@ -61,7 +61,7 @@ class TestCalendarWidget:
             if len(args) >= 2:
                 y_positions.append(args[1])  # Second positional arg is y
             else:
-                y_positions.append(kwargs.get("y"))  # Or get from kwargs
+                y_positions.append(kwargs.get("y_pos"))  # Or get from kwargs
 
         # All Y positions should be different
         assert len(y_positions) == 3

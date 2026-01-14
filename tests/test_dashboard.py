@@ -57,3 +57,39 @@ class TestDashboard:
         call_kwargs = mock_widget.render.call_args.kwargs
         assert call_kwargs.get("x_offset") == 100
         assert call_kwargs.get("y_offset") == 50
+
+    def test_dashboard_with_real_widgets(self, mock_display, mocker):
+        """Integration test: Dashboard with real widget instances"""
+        from src.widgets.calendar_widget import CalendarWidget
+        from src.widgets.weather_widget import WeatherWidget
+
+        # Create mock services
+        mock_calendar_service = mocker.Mock()
+        mock_calendar_service.get_todays_events.return_value = [
+            {"name": "Meeting", "time": "10:00"}
+        ]
+
+        mock_weather_service = mocker.Mock()
+        mock_weather_service.get_current_weather.return_value = {
+            "temperature": 22,
+            "condition": "sunny",
+            "city": "London",
+        }
+
+        # Create REAL widgets (not mocks!)
+        calendar_widget = CalendarWidget(mock_display, mock_calendar_service)
+        weather_widget = WeatherWidget(
+            mock_display, mock_weather_service, city="London"
+        )
+
+        # Create dashboard
+        dashboard = Dashboard(mock_display)
+        dashboard.add_widget(calendar_widget, x_pos=0, y_pos=0)
+        dashboard.add_widget(weather_widget, x_pos=400, y_pos=0)
+
+        # This should work without errors
+        dashboard.render()
+
+        # Verify display was used
+        assert mock_display.clear.called
+        assert mock_display.refresh.called

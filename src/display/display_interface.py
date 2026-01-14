@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+
 class DisplayInterface(ABC):
     """Abstract interface for E-ink display implementation"""
 
@@ -13,7 +14,7 @@ class DisplayInterface(ABC):
         pass
 
     @abstractmethod
-    def draw_text(self, x: int, y: int, text: str, font_size: int) -> None:
+    def draw_text(self, x_pos: int, y_pos: int, text: str, font_size: int) -> None:
         """Draw text at a specified position"""
         pass
 

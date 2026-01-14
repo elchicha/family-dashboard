@@ -2,6 +2,7 @@ import pytest
 from src.display.display_interface import DisplayInterface
 from src.display.mock_display import MockDisplay
 
+
 @pytest.fixture
 def mock_display():
     """Fixture that creates a MockDisplay instance"""
@@ -28,7 +29,7 @@ class TestDisplayInterface:
 
     def test_display_draw_text_accepts_position_and_content(self, mock_display):
         """Display should accept text drawing commands"""
-        mock_display.draw_text(x=10, y=20, text="Hello World", font_size=24)
+        mock_display.draw_text(x_pos=10, y_pos=20, text="Hello World", font_size=24)
 
         assert mock_display.last_action == "draw_text"
         assert mock_display.last_draw_params["x"] == 10

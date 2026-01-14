@@ -16,14 +16,14 @@ class MockDisplay(DisplayInterface):
         self.last_action = "clear"
         self.draw_commands = []
 
-    def draw_text(self, x: int, y: int, text: str, font_size: int) -> None:
+    def draw_text(self, x_pos: int, y_pos: int, text: str, font_size: int) -> None:
         """Record text drawing command"""
         self.last_action = "draw_text"
         self.last_draw_params = {
-            "x": x,
-            "y": y,
+            "x": x_pos,
+            "y": y_pos,
             "text": text,
-            "font_size": font_size
+            "font_size": font_size,
         }
         self.draw_commands.append(self.last_draw_params.copy())
 
