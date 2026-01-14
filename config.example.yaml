@@ -1,0 +1,45 @@
+# Family Dashboard Configuration Template
+# ========================================
+# PRIVACY: Copy this to config.yaml and fill in your details
+# config.yaml is .gitignored and will never be committed
+
+display:
+  width: 800
+  height: 480
+  type: "png"  # "png" for testing, "eink" for production
+
+weather:
+  enabled: true
+  city: "London"
+  units: "celsius"  # "celsius" or "fahrenheit"
+  api_key: "YOUR_OPENWEATHER_API_KEY"
+  # Get free API key: https://openweathermap.org/api
+
+calendar:
+  enabled: true
+  source: "local_file"  # "local_file" or "caldav"
+
+  # Local file option (most private)
+  local_file:
+    path: "./data/calendar.json"
+
+  # CalDAV option (self-hosted recommended)
+  caldav:
+    url: ""
+    username: ""
+    password: ""
+
+shopping_list:
+  enabled: true
+  file: "./data/shopping_list.json"
+
+tasks:
+  enabled: true
+  file: "./data/tasks.json"
+
+family:
+  members:
+    - name: "Dad"
+    - name: "Mom"
+    - name: "Child1"
+    - name: "Child2"
