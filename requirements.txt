@@ -9,3 +9,4 @@ Pillow==12.1.0
 # Dependencies
 requests==2.32.5
 # python-dotenv==1.0.0  # For config management
+pyyaml==6.0.3
