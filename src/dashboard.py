@@ -13,6 +13,6 @@ class Dashboard:
     def render(self):
         self.display.clear()
         for widget, x_pos, y_pos in self.widgets:
-            widget.render()
+            widget.render(x_offset=x_pos, y_offset=y_pos)
 
         self.display.refresh()
