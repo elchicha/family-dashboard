@@ -65,7 +65,7 @@ class TestDashboard:
 
         # Create mock services
         mock_calendar_service = mocker.Mock()
-        mock_calendar_service.get_todays_events.return_value = [
+        mock_calendar_service.get_events.return_value = [
             {"name": "Meeting", "time": "10:00"}
         ]
 

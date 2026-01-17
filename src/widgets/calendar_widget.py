@@ -10,7 +10,7 @@ class CalendarWidget(WidgetInterface):
 
     def render(self, x_offset: int = 0, y_offset: int = 0):
         """Render calendar events at offset position"""
-        events = self.calendar_service.get_todays_events()
+        events = self.calendar_service.get_events()
         y_position = 10 + y_offset
 
         for event in events:

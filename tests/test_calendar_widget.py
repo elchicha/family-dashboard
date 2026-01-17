@@ -18,7 +18,7 @@ class TestCalendarWidget:
         self, mock_display, mock_calendar_service
     ):
         """Widget should fetch events and render them on display"""
-        mock_calendar_service.get_todays_events.return_value = [
+        mock_calendar_service.get_events.return_value = [
             {"name": "Standup", "time": "09:00"},
             {"name": "Lunch", "time": "12:00"},
         ]
@@ -41,7 +41,7 @@ class TestCalendarWidget:
         self, mock_display, mock_calendar_service
     ):
         """Events should render at different Y coordinates so they don't overlap"""
-        mock_calendar_service.get_todays_events.return_value = [
+        mock_calendar_service.get_events.return_value = [
             {"name": "First Event", "time": "09:00"},
             {"name": "Second Event", "time": "10:00"},
             {"name": "Third Event", "time": "11:00"},
