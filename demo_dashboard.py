@@ -9,7 +9,7 @@ def create_mock_calendar_service():
     """Mock calendar service with fake data"""
 
     class MockCalendarService:
-        def get_todays_events(self):
+        def get_events(self):
             return [
                 {"name": "Morning Standup", "time": "09:00"},
                 {"name": "Client Meeting", "time": "10:30"},
