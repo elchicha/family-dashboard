@@ -4,9 +4,10 @@ from abc import ABC, abstractmethod
 class DisplayInterface(ABC):
     """Abstract interface for E-ink display implementation"""
 
-    def __init__(self, width: int, height: int):
+    def __init__(self, width: int, height: int, grayscale_levels=0):
         self.width = width
         self.height = height
+        self.grayscale_levels = grayscale_levels
 
     @abstractmethod
     def clear(self) -> None:

@@ -34,6 +34,19 @@ class PNGDisplay(DisplayInterface):
 
         self.draw.text((x_pos, y_pos), str(text), fill="black", font=font)
 
+    def draw_rectangle(
+        self,
+        x_pos: int,
+        y_pos: int,
+        width: int,
+        height: int,
+        fill: str | None = None,
+        outline: str = "#000000",
+    ):
+        """Draw a rectangle with optional fill and outline"""
+        coords = [(x_pos, y_pos), (x_pos + width, y_pos + height)]
+        self.draw.rectangle(coords, fill=fill, outline=outline)
+
     def refresh(self):
         """Save the image to file"""
         self.image.save(self.output_path)
