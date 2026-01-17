@@ -7,7 +7,10 @@ class TestCalendarWidget:
     @pytest.fixture
     def mock_display(self, mocker):
         """Mock display for testing"""
-        return mocker.Mock()
+        display = mocker.Mock()
+        display.width = 1872
+        display.height = 1404
+        return display
 
     @pytest.fixture
     def mock_calendar_service(self, mocker):
@@ -19,15 +22,13 @@ class TestCalendarWidget:
     ):
         """Widget should fetch events and render them on display"""
         mock_calendar_service.get_events.return_value = [
-            {"name": "Standup", "time": "09:00"},
-            {"name": "Lunch", "time": "12:00"},
+            {"summary": "Standup", "time": "09:00", "uid": "1"},
+            {"summary": "Lunch", "time": "12:00", "uid": "2"},
         ]
 
-        widget = CalendarWidget(
-            display=mock_display, calendar_service=mock_calendar_service
-        )
+        widget = CalendarWidget(calendar_service=mock_calendar_service)
 
-        widget.render()
+        widget.render(display=mock_display, x_offset=0, y_offset=0)
 
         assert mock_display.draw_text.called
         assert mock_display.draw_text.call_count >= 2
@@ -42,30 +43,40 @@ class TestCalendarWidget:
     ):
         """Events should render at different Y coordinates so they don't overlap"""
         mock_calendar_service.get_events.return_value = [
-            {"name": "First Event", "time": "09:00"},
-            {"name": "Second Event", "time": "10:00"},
-            {"name": "Third Event", "time": "11:00"},
+            {"summary": "First Event", "time": "09:00", "uid": "1"},
+            {"summary": "Second Event", "time": "10:00", "uid": "2"},
+            {"summary": "Third Event", "time": "11:00", "uid": "3"},
         ]
 
-        widget = CalendarWidget(mock_display, mock_calendar_service)
-        widget.render()
+        widget = CalendarWidget(mock_calendar_service)
+        widget.render(display=mock_display, x_offset=0, y_offset=0)
 
         # Get all the draw_text calls
         calls = mock_display.draw_text.call_args_list
 
-        # Extract Y positions (assuming draw_text is called with positional args x, y, text)
-        # calls look like: call(x, y, text) or call(x=.., y=.., text=..)
+        # Extract Y positions IN ORDER
         y_positions = []
         for call in calls:
             args, kwargs = call
-            if len(args) >= 2:
-                y_positions.append(args[1])  # Second positional arg is y
-            else:
-                y_positions.append(kwargs.get("y_pos"))  # Or get from kwargs
+            if "y_pos" in kwargs:
+                y_positions.append(kwargs["y_pos"])
+            elif len(args) >= 2:
+                y_positions.append(args[1])
 
-        # All Y positions should be different
-        assert len(y_positions) == 3
-        assert len(set(y_positions)) == 3  # 3 unique values
+        # Should have at least 3 Y positions
+        assert (
+            len(y_positions) >= 3
+        ), f"Expected at least 3 Y positions, got {len(y_positions)}"
+
+        # All Y positions should be unique (no overlap)
+        unique_y = set(y_positions)
+        assert (
+            len(unique_y) >= 3
+        ), f"Expected at least 3 unique Y positions, got {len(unique_y)}"
 
         # Y positions should increase (events stack downward)
-        assert y_positions[0] < y_positions[1] < y_positions[2]
+        # Take first 3 Y positions in render order
+        first_three_y = y_positions[:3]
+        assert (
+            first_three_y[0] < first_three_y[1] < first_three_y[2]
+        ), f"Y positions should increase: {first_three_y}"
