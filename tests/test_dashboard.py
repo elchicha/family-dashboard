@@ -66,7 +66,7 @@ class TestDashboard:
         # Create mock services
         mock_calendar_service = mocker.Mock()
         mock_calendar_service.get_events.return_value = [
-            {"name": "Meeting", "time": "10:00"}
+            {"summary": "Meeting", "time": "10:00"}
         ]
 
         mock_weather_service = mocker.Mock()
@@ -77,10 +77,8 @@ class TestDashboard:
         }
 
         # Create REAL widgets (not mocks!)
-        calendar_widget = CalendarWidget(mock_display, mock_calendar_service)
-        weather_widget = WeatherWidget(
-            mock_display, mock_weather_service, city="London"
-        )
+        calendar_widget = CalendarWidget(mock_calendar_service)
+        weather_widget = WeatherWidget(mock_weather_service, city="London")
 
         # Create dashboard
         dashboard = Dashboard(mock_display)

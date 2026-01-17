@@ -22,11 +22,9 @@ class TestWeatherWidget:
             "city": "London",
         }
 
-        widget = WeatherWidget(
-            display=mock_display, weather_service=mock_weather_service, city="London"
-        )
+        widget = WeatherWidget(weather_service=mock_weather_service, city="London")
 
-        widget.render()
+        widget.render(mock_display)
         mock_weather_service.get_current_weather.assert_called_once_with(city="London")
 
         assert mock_display.draw_text.called
@@ -45,10 +43,10 @@ class TestWeatherWidget:
             "city": "London",
         }
 
-        widget = WeatherWidget(mock_display, mock_weather_service, city="London")
+        widget = WeatherWidget(mock_weather_service, city="London")
 
         # Render with offset
-        widget.render(x_offset=400, y_offset=0)
+        widget.render(mock_display, x_offset=400, y_offset=0)
 
         calls = mock_display.draw_text.call_args_list
         # Extract positions from keyword arguments
