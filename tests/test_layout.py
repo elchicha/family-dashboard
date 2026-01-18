@@ -3,6 +3,16 @@ from src.layout.layout_interface import LayoutInterface
 from src.layout.three_column_layout import ThreeColumnLayout
 
 
+# At the top of your test file, add a mock widget class
+class MockWidget:
+    def __init__(self, height=100):
+        self.height = height
+        self.rendered_at = None  # Track where it was rendered
+
+    def render(self, display, x_offset=0, y_offset=0):
+        self.rendered_at = (x_offset, y_offset)
+
+
 @pytest.fixture
 def layout():
     """Fixture that creates a Layout instance"""
@@ -32,3 +42,25 @@ class TestThreeColumnLayout:
 
         assert len(layout.columns[0]) == 1
         assert layout.columns[0][0] == widget
+
+    def test_render_positions_widgets_correctly(self, layout):
+        """Layout should position widgets in correct columns with correct offsets"""
+        layout = ThreeColumnLayout(width=1872, height=1404)
+
+        widget1 = MockWidget(height=100)
+        widget2 = MockWidget(height=150)
+        widget3 = MockWidget(height=200)
+
+        layout.add_widget(widget1, column=0)
+        layout.add_widget(widget2, column=1)
+        layout.add_widget(widget3, column=0)  # Second widget in column 0
+
+        # Mock display
+        display = None  # We'll pass None since MockWidget doesn't use it
+
+        layout.render(display)
+
+        # Check positions
+        assert widget1.rendered_at == (0, 0)  # Column 0, top
+        assert widget2.rendered_at == (624, 0)  # Column 1, top
+        assert widget3.rendered_at == (0, 100)  # Column 0, below widget1
