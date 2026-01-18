@@ -15,7 +15,9 @@ class DisplayInterface(ABC):
         pass
 
     @abstractmethod
-    def draw_text(self, x_pos: int, y_pos: int, text: str, font_size: int) -> None:
+    def draw_text(
+        self, x_pos: int, y_pos: int, text: str, font_size: int, color: str
+    ) -> None:
         """Draw text at a specified position"""
         pass
 
