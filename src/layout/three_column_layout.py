@@ -44,6 +44,15 @@ class ThreeColumnLayout(LayoutInterface):
         self.columns[column].append(widget)
 
     def render(self, display):
+        """
+        Render all widgets in their assigned columns.
+
+        Widgets are positioned at column x-offsets and stacked vertically
+        based on their height attribute.
+
+        Args:
+            display: Display to render to
+        """
         for column_index in range(len(self.columns)):
             x_offset = column_index * self.column_width
             y_offset = 0
