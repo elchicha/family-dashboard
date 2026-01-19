@@ -7,6 +7,7 @@ class WeatherWidget(WidgetInterface):
     def __init__(self, weather_service, city: str):
         self.weather_service = weather_service
         self.city = city
+        self.height = 200
 
     def render(self, display: DisplayInterface, x_offset: int = 0, y_offset: int = 0):
         """Render weather at offset position"""

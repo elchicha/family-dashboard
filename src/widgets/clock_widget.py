@@ -10,6 +10,9 @@ class ClockWidget(WidgetInterface):
     Shows large time at top with date below in grayscale hierarchy.
     """
 
+    def __init__(self):
+        self.height = 150
+
     def render(
         self, display: DisplayInterface, x_offset: int = 0, y_offset: int = 0
     ) -> None:
