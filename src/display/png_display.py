@@ -5,7 +5,7 @@ from src.display.display_interface import DisplayInterface
 class PNGDisplay(DisplayInterface):
     """Renders display output to a PNG file"""
 
-    def __init__(self, width: int, height: int, output_path: str):
+    def __init__(self, width: int, height: int, output_path: str = None):
         super().__init__(width, height)
         self.output_path = output_path
         self.image = Image.new("RGB", (width, height), "white")
@@ -21,7 +21,9 @@ class PNGDisplay(DisplayInterface):
         """Draw a line on the image"""
         self.draw.line([(x1, y1), (x2, y2)], fill=color, width=width)
 
-    def draw_text(self, x_pos: int, y_pos: int, text: str, font_size: int):
+    def draw_text(
+        self, x_pos: int, y_pos: int, text: str, font_size: int, color: str = "#000000"
+    ):
         """Draw text on the image"""
         try:
             # Try to use a nice font
@@ -32,7 +34,7 @@ class PNGDisplay(DisplayInterface):
             # Fall back to default
             font = ImageFont.load_default()
 
-        self.draw.text((x_pos, y_pos), str(text), fill="black", font=font)
+        self.draw.text((x_pos, y_pos), str(text), fill=color, font=font)
 
     def draw_rectangle(
         self,
@@ -51,3 +53,17 @@ class PNGDisplay(DisplayInterface):
         """Save the image to file"""
         self.image.save(self.output_path)
         print(f"Dashboard saved to {self.output_path}")
+
+    def get_image_bytes(self) -> bytes:
+        """
+        Get PNG image as bytes.
+
+        Returns:
+            PNG image data as bytes
+        """
+        from io import BytesIO
+
+        buffer = BytesIO()
+        self.image.save(buffer, format="PNG")
+        buffer.seek(0)
+        return buffer.read()
