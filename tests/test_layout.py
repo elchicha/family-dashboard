@@ -64,3 +64,20 @@ class TestThreeColumnLayout:
         assert widget1.rendered_at == (0, 0)  # Column 0, top
         assert widget2.rendered_at == (624, 0)  # Column 1, top
         assert widget3.rendered_at == (0, 100)  # Column 0, below widget1
+
+    @pytest.mark.parametrize(
+        "width,height,expected_col_width",
+        [
+            (800, 480, 266),  # 7.5" E-Ink display (ESP32)
+            (960, 680, 320),  # 13.3" E-Ink HAT (Pi)
+            (1872, 1404, 624),  # 10.3" (legacy support)
+        ],
+    )
+    def test_layout_supports_multiple_resolutions(
+        self, width, height, expected_col_width
+    ):
+        """Layout should correctly calculate column widths for different display sizes"""
+        layout = ThreeColumnLayout(width=width, height=height)
+        assert layout.column_width == expected_col_width
+        assert layout.width == width
+        assert layout.height == height
