@@ -2,7 +2,15 @@ from abc import ABC, abstractmethod
 
 
 class WidgetInterface(ABC):
-    """Base interface for all dashboard widgets"""
+    """
+    Base interface for all dashboard widgets.
+
+    All widgets must:
+    1. Implement render() method
+    2. Have a 'height' attribute (int) specifying widget height in pixels
+
+    The height attribute is used by layout managers to stack widgets vertically.
+    """
 
     @abstractmethod
     def render(self, display, x_offset: int = 0, y_offset: int = 0) -> None:

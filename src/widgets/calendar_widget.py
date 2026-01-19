@@ -6,6 +6,7 @@ class CalendarWidget(WidgetInterface):
 
     def __init__(self, calendar_service):
         self.calendar_service = calendar_service
+        self.height = 300
 
     def render(self, display, x_offset: int = 0, y_offset: int = 0):
         """Render calendar events at offset position"""
