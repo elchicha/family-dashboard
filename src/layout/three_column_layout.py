@@ -3,7 +3,28 @@ from src.widgets.widget_interface import WidgetInterface
 
 
 class ThreeColumnLayout(LayoutInterface):
-    def __init__(self, width=1872, height=1404):
+    """
+    Three-column layout for E-Ink dashboards.
+
+    Divides the display into three equal-width columns. Widgets are
+    stacked vertically within their assigned column.
+
+    Supported displays:
+    - 800×480 (7.5" E-Ink with ESP32 - Waveshare SKU:13187)
+    - 960×680 (13.3" E-Ink Pi HAT - Waveshare SKU:25726)
+    - Custom resolutions supported via width/height parameters
+
+    Note: Widgets must have a 'height' attribute for proper stacking.
+    """
+
+    def __init__(self, width=800, height=480):
+        """
+        Initialize three-column layout.
+
+        Args:
+            width: Display width in pixels (default: 800 for 7.5" display)
+            height: Display height in pixels (default: 480 for 7.5" display)
+        """
         self.width = width
         self.height = height
         self.columns = [[], [], []]
