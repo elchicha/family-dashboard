@@ -5,6 +5,7 @@ from flask import Flask, send_file
 
 from src.display.png_display import PNGDisplay
 from src.layout.three_column_layout import ThreeColumnLayout
+from src.layout.two_column_layout import TwoColumnLayout
 from src.widgets.clock_widget import ClockWidget
 
 app = Flask(__name__)
@@ -15,11 +16,11 @@ def render_display(display_id: str):
     display = PNGDisplay(width=800, height=480)
     display.clear()
 
-    layout = ThreeColumnLayout(width=800, height=480)
+    layout = TwoColumnLayout(width=800, height=480, left_ratio=0.6, widget_spacing=15)
 
     if display_id == "kitchen":
         clock = ClockWidget()
-        layout.add_widget(clock, column=0)
+        layout.add_widget(clock, column="right")
 
         # TODO: Add more widgets
 
