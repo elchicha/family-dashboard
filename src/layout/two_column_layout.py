@@ -23,7 +23,7 @@ class TwoColumnLayout(LayoutInterface):
         self.widget_spacing = widget_spacing
 
     def add_widget(self, widget: WidgetInterface, column: str) -> None:
-        """Add widget to a specific column.
+        """Add widgets to a specific column.
         Args:
             widget: Widget to add
             column: Column index

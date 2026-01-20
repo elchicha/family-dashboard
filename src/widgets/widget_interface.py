@@ -7,7 +7,7 @@ class WidgetInterface(ABC):
 
     All widgets must:
     1. Implement render() method
-    2. Have a 'height' attribute (int) specifying widget height in pixels
+    2. Have a 'height' attribute (int) specifying widgets height in pixels
 
     The height attribute is used by layout managers to stack widgets vertically.
     """
@@ -15,7 +15,7 @@ class WidgetInterface(ABC):
     @abstractmethod
     def render(self, display, x_offset: int = 0, y_offset: int = 0) -> None:
         """
-        Render the widget at the specified offset.
+        Render the widgets at the specified offset.
 
         Args:
             display: Target display where to render

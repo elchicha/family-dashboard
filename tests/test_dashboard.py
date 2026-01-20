@@ -59,7 +59,7 @@ class TestDashboard:
         assert call_kwargs.get("y_offset") == 50
 
     def test_dashboard_with_real_widgets(self, mock_display, mocker):
-        """Integration test: Dashboard with real widget instances"""
+        """Integration test: Dashboard with real widgets instances"""
         from src.widgets.calendar_widget import CalendarWidget
         from src.widgets.weather_widget import WeatherWidget
 

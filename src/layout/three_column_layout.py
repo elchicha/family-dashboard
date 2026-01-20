@@ -31,7 +31,7 @@ class ThreeColumnLayout(LayoutInterface):
         self.column_width = width // 3
 
     def add_widget(self, widget: WidgetInterface, column: int) -> None:
-        """Add widget to a specific column.
+        """Add widgets to a specific column.
         Args:
             widget: Widget to add
             column: Column index

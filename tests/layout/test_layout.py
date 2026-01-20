@@ -4,7 +4,7 @@ from src.layout.three_column_layout import ThreeColumnLayout
 from src.layout.two_column_layout import TwoColumnLayout
 
 
-# At the top of your test file, add a mock widget class
+# At the top of your test file, add a mock widgets class
 class MockWidget:
     def __init__(self, height=100):
         self.height = height
@@ -60,7 +60,7 @@ class TestThreeColumnLayout:
 
         layout.add_widget(widget1, column=0)
         layout.add_widget(widget2, column=1)
-        layout.add_widget(widget3, column=0)  # Second widget in column 0
+        layout.add_widget(widget3, column=0)  # Second widgets in column 0
 
         # Mock display
         display = None  # We'll pass None since MockWidget doesn't use it
@@ -211,11 +211,11 @@ class TestTwoColumnLayout:
 
         two_column_layout.render(display=None)
 
-        # First widget at top
+        # First widgets at top
         assert widget1.rendered_at == (0, 0)
-        # Second widget below first
+        # Second widgets below first
         assert widget2.rendered_at == (0, 100)
-        # Third widget below second
+        # Third widgets below second
         assert widget3.rendered_at == (0, 250)  # 100 + 150
 
     def test_render_with_widget_spacing(self):
@@ -229,7 +229,7 @@ class TestTwoColumnLayout:
 
         layout.render(display=None)
 
-        # Second widget should have gap
+        # Second widgets should have gap
         assert widget1.rendered_at == (0, 0)
         assert widget2.rendered_at == (0, 120)  # 100 + 20 spacing
 

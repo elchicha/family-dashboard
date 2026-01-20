@@ -11,7 +11,7 @@ class ClockWidget(WidgetInterface):
     """
 
     def __init__(self, hourly_format: bool = False):
-        """Initialize the clock widget.
+        """Initialize the clock widgets.
 
         Args:
             hourly_format : If True, shows "03 PM" instead of "03:27 PM" (for hourly updates to save power)
