@@ -7,9 +7,35 @@ from src.display.png_display import PNGDisplay
 from src.layout.three_column_layout import ThreeColumnLayout
 from src.layout.two_column_layout import TwoColumnLayout
 from src.widgets.clock_widget import ClockWidget
+from src.widgets.calendar_widget import CalendarWidget
 
 app = Flask(__name__)
 
+
+class MockCalendarService:
+    """Mock service that returns sample events."""
+
+    def get_events(self):
+        return [
+            {
+                "summary": "Team Standup",
+                "time": "09:00",
+                "location": "Zoom - Room 3",
+                "uid": "1",
+            },
+            {
+                "summary": "Dentist Appointment",
+                "time": "14:30",
+                "location": "123 Main St",
+                "uid": "2",
+            },
+            {
+                "summary": "Dinner with Sarah",
+                "time": "18:00",
+                "location": "Downtown Restaurant",
+                "uid": "3",
+            },
+        ]
 
 @app.route("/render/<display_id>")
 def render_display(display_id: str):
@@ -21,6 +47,8 @@ def render_display(display_id: str):
     if display_id == "kitchen":
         clock = ClockWidget()
         layout.add_widget(clock, column="right")
+        calendar_service = MockCalendarService()  # ← Create mock service
+        layout.add_widget(CalendarWidget(calendar_service), column='left')  # ← Pass
 
         # TODO: Add more widgets
 
@@ -57,6 +85,8 @@ def index():
                 max-width: 100%; 
                 border: 2px solid #333;
                 margin-top: 10px;
+                width: 1600px; 
+                image-rendering: pixelated; 
             }
         </style>
     </head>
