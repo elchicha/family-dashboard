@@ -19,3 +19,10 @@ class CalendarWidget(WidgetInterface):
                 x_pos=10 + x_offset, y_pos=y_position, text=event_detail, font_size=20
             )
             y_position += 30
+
+    def _render_header(self, display, x_position: int, y_position: int) -> int:
+        now = datetime.now()
+        day_str = now.strftime("%A").upper()
+        display.draw_text(x_pos=x_position, y_pos=y_position, text=day_str, font_size=20, color="#666666",)
+
+        return y_position + 30
