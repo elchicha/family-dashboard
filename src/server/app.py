@@ -1,3 +1,4 @@
+from datetime import timedelta
 from io import BytesIO
 
 from PIL.ImageOps import grayscale
@@ -16,24 +17,62 @@ class MockCalendarService:
     """Mock service that returns sample events."""
 
     def get_events(self):
+        from datetime import datetime, timedelta
+
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
         return [
+            # TODAY
             {
                 "summary": "Team Standup",
                 "time": "09:00",
                 "location": "Zoom - Room 3",
+                "date": today,  # ← Added
                 "uid": "1",
             },
             {
                 "summary": "Dentist Appointment",
                 "time": "14:30",
                 "location": "123 Main St",
+                "date": today,  # ← Added
                 "uid": "2",
             },
             {
                 "summary": "Dinner with Sarah",
                 "time": "18:00",
                 "location": "Downtown Restaurant",
+                "date": today,  # ← Added
                 "uid": "3",
+            },
+            # TOMORROW
+            {
+                "summary": "Client Meeting",
+                "time": "10:00",
+                "location": "Conference Room A",
+                "date": today + timedelta(days=1),
+                "uid": "4",
+            },
+            {
+                "summary": "Grocery Shopping",
+                "time": "16:00",
+                "location": "Whole Foods",
+                "date": today + timedelta(days=1),
+                "uid": "5",
+            },
+            # DAY AFTER TOMORROW
+            {
+                "summary": "Morning Gym",
+                "time": "07:00",
+                "location": "LA Fitness",
+                "date": today + timedelta(days=2),
+                "uid": "6",
+            },
+            {
+                "summary": "Team Lunch",
+                "time": "12:30",
+                "location": "Italian Place",
+                "date": today + timedelta(days=2),
+                "uid": "7",
             },
         ]
 
@@ -47,8 +86,11 @@ def render_display(display_id: str):
     if display_id == "kitchen":
         clock = ClockWidget()
         layout.add_widget(clock, column="right")
-        calendar_service = MockCalendarService()  # ← Create mock service
-        layout.add_widget(CalendarWidget(calendar_service), column='left')  # ← Pass
+        calendar_service = MockCalendarService()
+        layout.add_widget(
+            CalendarWidget(calendar_service, view_mode="three_day"),  # ← Change to three_day
+            column='left'
+        )
 
         # TODO: Add more widgets
 
