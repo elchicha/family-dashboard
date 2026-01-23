@@ -6,10 +6,10 @@ from flask import Flask, send_file
 
 from src.display.png_display import PNGDisplay
 from src.layout.two_column_layout import TwoColumnLayout
-from src.widgets.clock_widget import ClockWidget
 from src.widgets.calendar_widget import CalendarWidget
 from src.services.calendar_service import CalendarService
 from src.services.cached_calendar_service import CachedCalendarService
+from src.widgets.date_widget import DateWidget
 
 app = Flask(__name__)
 
@@ -89,8 +89,8 @@ def render_display(display_id: str):
     )
 
     if display_id == "kitchen":
-        clock = ClockWidget()
-        layout.add_widget(clock, column="right")
+        date_widget = DateWidget()
+        layout.add_widget(date_widget, column="right")
 
         calendar_widget = CalendarWidget(
             calendar_service,
