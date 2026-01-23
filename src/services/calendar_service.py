@@ -77,8 +77,11 @@ class CalendarService:
         """Fetch and parse events from a public .ics URL."""
         import requests
 
+        print(f"[CalendarService] Fetching from: {self.url[:50]}...")  # Debug log
         response = requests.get(self.url)
         response.raise_for_status()
+        print(f"[CalendarService] Got response, status: {response.status_code}")  # Debug log
+        print(f"[CalendarService] Content length: {len(response.content)} bytes")  # Debug log
 
         cal = Calendar.from_ical(response.content)
         events = []
@@ -92,8 +95,8 @@ class CalendarService:
                         event['source'] = self.source_name
                 events.extend(parsed_events)
 
+        print(f"[CalendarService] Found {len(events)} events for {self.source_name}")  # Debug log
         return sorted(events, key=lambda e: (e['date'], e['time']))
-
     def _parse_ical_event(
             self,
             component,

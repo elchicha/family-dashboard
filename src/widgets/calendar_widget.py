@@ -125,10 +125,14 @@ class CalendarWidget(WidgetInterface):
             end_date=today + timedelta(days=2)
         ) if self.calendar_service else []
 
+        print(f"[CalendarWidget] Total events received: {len(all_events)}")  # DEBUG
+
         # Categorize all events
         categorized_events = []
         for event in all_events:
             category = EventCategorizer.categorize(event)
+            print(
+                f"[CalendarWidget] Event: '{event['summary']}' from {event.get('source')} -> Category: {category}")  # DEBUG
             categorized_events.append({
                 'event': event,
                 'category': category
@@ -150,6 +154,8 @@ class CalendarWidget(WidgetInterface):
                 item for item in categorized_events
                 if item['event'].get("date", today_dt).date() == date.date()
             ]
+
+            print(f"[CalendarWidget] {label or date.strftime('%a %b %d')}: {len(day_events)} events")  # DEBUG
 
             if not day_events:
                 continue  # Skip days with no events
@@ -444,6 +450,35 @@ class CalendarWidget(WidgetInterface):
                     )
                     y_pos += 20
 
+        # Personal Events (NEW SECTION)
+        if EventCategory.PERSONAL in events_by_category:
+            events = events_by_category[EventCategory.PERSONAL]
+
+            if events:
+                for event in events[:3]:  # Limit to 3 events
+                    time_str = self._format_time(event["time"])
+                    source_tag = f"[{event.get('source', '')}]" if event.get('source') else ""
+
+                    display.draw_text(
+                        x_pos=x_pos + 15,
+                        y_pos=y_pos,
+                        text=f"{time_str} {source_tag} {event['summary']}",
+                        font_size=18,
+                        color="#000000",
+                    )
+                    y_pos += 26
+
+                # Show "more" indicator if needed
+                if len(events) > 3:
+                    display.draw_text(
+                        x_pos=x_pos + 15,
+                        y_pos=y_pos,
+                        text=f"+{len(events) - 3} more",
+                        font_size=14,
+                        color="#999999",
+                    )
+                    y_pos += 20
+
         # Ongoing (less prominent)
         if EventCategory.ONGOING in events_by_category:
             ongoing = events_by_category[EventCategory.ONGOING]
@@ -475,8 +510,7 @@ class CalendarWidget(WidgetInterface):
                 )
                 y_pos += 26
 
-        return y_pos
-    # ========== Single-Day View Rendering Methods ==========
+        return y_pos    # ========== Single-Day View Rendering Methods ==========
 
     def _render_header(
             self,
