@@ -77,8 +77,12 @@ class CalendarWidget(WidgetInterface):
         y_pos = self._render_header(display, x_offset + padding_left, y_pos)
         y_pos += 15
 
-        # Get events from service
-        events = self.calendar_service.get_events() if self.calendar_service else []
+        # Get events from service with date range
+        today = datetime.now().date()
+        events = self.calendar_service.get_events(
+            start_date=today,
+            end_date=today
+        ) if self.calendar_service else []
 
         if not events:
             self._render_no_events(display, x_offset + padding_left, y_pos)
@@ -113,22 +117,26 @@ class CalendarWidget(WidgetInterface):
 
         y_pos = padding_top + y_offset
 
-        # Get all events
-        all_events = self.calendar_service.get_events() if self.calendar_service else []
+        # Get all events with proper date range (today + 2 days)
+        today = datetime.now().date()
+        all_events = self.calendar_service.get_events(
+            start_date=today,
+            end_date=today + timedelta(days=2)
+        ) if self.calendar_service else []
 
         # Group events by date
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         days_to_show = [
-            (today, "TODAY"),
-            (today + timedelta(days=1), "TOMORROW"),
-            (today + timedelta(days=2), None),
+            (today_dt, "TODAY"),
+            (today_dt + timedelta(days=1), "TOMORROW"),
+            (today_dt + timedelta(days=2), None),
         ]
 
         for day_index, (date, label) in enumerate(days_to_show):
             # Get events for this day
             day_events = [
                 e for e in all_events
-                if e.get("date", today).date() == date.date()
+                if e.get("date", today_dt).date() == date.date()
             ]
 
             # Render day header
@@ -170,7 +178,6 @@ class CalendarWidget(WidgetInterface):
                     )
 
             y_pos += 15
-
     # ========== Single-Day View Rendering Methods ==========
 
     def _render_header(
@@ -309,7 +316,7 @@ class CalendarWidget(WidgetInterface):
     ) -> int:
         """Render single event in compact format."""
         time_str = self._format_time(event["time"])
-        event_line = f"• {time_str}  {event['summary']}"
+        event_line = f"{time_str}  {event['summary']}"  # Removed the bullet point
 
         display.draw_text(
             x_pos=x_pos,
@@ -331,7 +338,7 @@ class CalendarWidget(WidgetInterface):
         display.draw_text(
             x_pos=x_pos,
             y_pos=y_pos,
-            text="• No events",
+            text="No events",  # Removed the bullet point
             font_size=14,
             color="#AAAAAA",
         )

@@ -1,5 +1,6 @@
 from datetime import timedelta, date
 from io import BytesIO
+import yaml
 
 from flask import Flask, send_file
 
@@ -12,32 +13,87 @@ from src.services.cached_calendar_service import CachedCalendarService
 
 app = Flask(__name__)
 
-# Initialize calendar service with caching (5-minute cache)
-base_service = CalendarService(
-    url="https://calendar.google.com/calendar/ical/jk4klsjkfeqummcgak6colmkso%40group.calendar.google.com/public/basic.ics"
-)
-calendar_service = CachedCalendarService(
-    service=base_service,
-    cache_duration_minutes=5  # Cache for 5 minutes
-)
+
+def load_config():
+    """Load configuration from config.yaml"""
+    try:
+        with open('config.yaml', 'r') as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        print("ERROR: config.yaml not found!")
+        print("Please copy config.example.yaml to config.yaml and fill in your details")
+        exit(1)
+
+
+class MergedCalendarService:
+    """Service that merges events from multiple calendar services."""
+
+    def __init__(self, services: list):
+        self.services = services
+
+    def get_events(self, start_date=None, end_date=None):
+        """Get events from all services and merge them."""
+        all_events = []
+        for service in self.services:
+            try:
+                events = service.get_events(start_date=start_date, end_date=end_date)
+                all_events.extend(events)
+            except Exception as e:
+                print(f"Warning: Failed to fetch from a calendar service: {e}")
+
+        # Sort by date and time
+        return sorted(all_events, key=lambda e: (e['date'], e['time']))
+
+    def clear_cache(self):
+        """Clear cache for all services."""
+        for service in self.services:
+            if hasattr(service, 'clear_cache'):
+                service.clear_cache()
+
+
+# Load configuration
+config = load_config()
+
+# Initialize calendar services from config
+calendar_services = []
+for cal_config in config['calendars']['sources']:
+    if cal_config.get('enabled', True):
+        base_service = CalendarService(url=cal_config['url'])
+        cached_service = CachedCalendarService(
+            service=base_service,
+            cache_duration_minutes=config['calendars']['cache_duration_minutes']
+        )
+        calendar_services.append(cached_service)
+        print(f"✓ Loaded calendar: {cal_config['name']}")
+
+# Create merged calendar service
+calendar_service = MergedCalendarService(calendar_services)
 
 
 @app.route("/render/<display_id>")
 def render_display(display_id: str):
-    display = PNGDisplay(width=800, height=480)
+    display = PNGDisplay(
+        width=config['display']['width'],
+        height=config['display']['height']
+    )
     display.clear()
 
-    layout = TwoColumnLayout(width=800, height=480, left_ratio=0.6, widget_spacing=15)
+    layout = TwoColumnLayout(
+        width=config['display']['width'],
+        height=config['display']['height'],
+        left_ratio=0.6,
+        widget_spacing=15
+    )
 
     if display_id == "kitchen":
         clock = ClockWidget()
         layout.add_widget(clock, column="right")
 
-        # Use cached calendar service with three-day view
-        layout.add_widget(
-            CalendarWidget(calendar_service, view_mode="three_day"),
-            column='left'
+        calendar_widget = CalendarWidget(
+            calendar_service,
+            view_mode=config['calendars']['view_mode']
         )
+        layout.add_widget(calendar_widget, column='left')
 
     layout.render(display)
     png_bytes = display.get_image_bytes()
@@ -53,33 +109,36 @@ def render_display(display_id: str):
 @app.route("/")
 def index():
     """Simple index page with available displays"""
-    return """
+    calendar_names = [cal['name'] for cal in config['calendars']['sources'] if cal.get('enabled', True)]
+    calendars_list = "<br>".join([f"   - {name}" for name in calendar_names])
+
+    return f"""
     <!DOCTYPE html>
     <html>
     <head>
         <title>Family Dashboard Server</title>
         <style>
-            body { font-family: sans-serif; margin: 40px; }
-            h1 { color: #333; }
-            .display { 
+            body {{ font-family: sans-serif; margin: 40px; }}
+            h1 {{ color: #333; }}
+            .display {{ 
                 margin: 20px 0; 
                 padding: 10px;
                 border: 1px solid #ccc;
                 border-radius: 5px;
-            }
-            img { 
+            }}
+            img {{ 
                 max-width: 100%; 
                 border: 2px solid #333;
                 margin-top: 10px;
                 width: 1600px; 
                 image-rendering: pixelated; 
-            }
-            .admin-links {
+            }}
+            .admin-links {{
                 margin-top: 30px;
                 padding: 15px;
                 background: #f0f0f0;
                 border-radius: 5px;
-            }
+            }}
         </style>
     </head>
     <body>
@@ -100,7 +159,8 @@ def index():
             </ul>
         </div>
 
-        <p><em>Refresh page to see updated content (calendar cached for 5 minutes)</em></p>
+        <p><em>Refresh page to see updated content (calendar cached for {config['calendars']['cache_duration_minutes']} minutes)</em></p>
+        <p><em>Active calendars ({len(calendar_names)}):</em><br>{calendars_list}</p>
     </body>
     </html>
     """
@@ -110,14 +170,16 @@ def index():
 def debug_calendar():
     """Debug endpoint to view raw calendar events"""
     today = date.today()
+    end_date = today + timedelta(days=2)
+
     events = calendar_service.get_events(
         start_date=today,
-        end_date=today + timedelta(days=30),
+        end_date=end_date,
     )
 
-    html = "<h1>📅 Calendar Debug</h1>"
-    html += f"<p>Fetching events from {today} to {today + timedelta(days=2)}</p>"
-    html += f"<p><strong>Found {len(events)} events:</strong></p>"
+    html = "<h1>📅 Calendar Debug (All Sources)</h1>"
+    html += f"<p>Fetching events from {today} to {end_date}</p>"
+    html += f"<p><strong>Found {len(events)} events from all calendars:</strong></p>"
     html += "<ul style='font-family: monospace;'>"
 
     for event in events:
@@ -138,7 +200,7 @@ def clear_cache():
     calendar_service.clear_cache()
     return """
     <h1>🗑️ Cache Cleared</h1>
-    <p>Calendar cache has been cleared. Next request will fetch fresh data.</p>
+    <p>All calendar caches have been cleared. Next request will fetch fresh data.</p>
     <p><a href='/debug/calendar'>View calendar</a> | <a href='/'>← Back to home</a></p>
     """
 
@@ -146,7 +208,11 @@ def clear_cache():
 if __name__ == "__main__":
     print("🚀 Starting Family Dashboard Server...")
     print("📍 Server running at http://localhost:5000")
-    print("📅 Using Arroyo School Calendar (cached for 5 minutes)")
+    print(f"📅 Loaded {len(calendar_services)} calendar(s):")
+    for cal_config in config['calendars']['sources']:
+        if cal_config.get('enabled', True):
+            print(f"   - {cal_config['name']}")
+    print(f"   (Cached for {config['calendars']['cache_duration_minutes']} minutes)")
     print("🔍 Debug calendar at http://localhost:5000/debug/calendar")
     print("🗑️  Clear cache at http://localhost:5000/admin/clear-cache")
     print("🔄 Press Ctrl+C to stop")

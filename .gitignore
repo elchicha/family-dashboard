@@ -1,4 +1,5 @@
 # PRIVACY: Never commit actual config or data
+.env
 config.yaml
 data/
 *.json
@@ -15,8 +16,6 @@ __pycache__/
 *.py[cod]
 .idea/
 .venv/
-
-.env
 
 *.png
 dashboard_*.png

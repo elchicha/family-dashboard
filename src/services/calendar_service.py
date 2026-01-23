@@ -82,57 +82,85 @@ class CalendarService:
         events = []
 
         for component in cal.walk('VEVENT'):
-            parsed = self._parse_ical_event(component, start_date, end_date)
-            if parsed:
-                events.append(parsed)
+            parsed_events = self._parse_ical_event(component, start_date, end_date)
+            if parsed_events:
+                # _parse_ical_event now returns a list of events (one per day)
+                events.extend(parsed_events)
 
         return sorted(events, key=lambda e: (e['date'], e['time']))
 
     def _parse_ical_event(
-        self,
-        component,
-        start_date: date,
-        end_date: date
-    ) -> Optional[dict]:
-        """Parse an iCalendar event component."""
+            self,
+            component,
+            start_date: date,
+            end_date: date
+    ) -> list[dict]:
+        """Parse an iCalendar event component, expanding multi-day events."""
         try:
             # Get start date/time
             dtstart = component.get('DTSTART')
             if not dtstart:
-                return None
+                return []
 
             dt = dtstart.dt
 
+            # Get end date/time
+            dtend = component.get('DTEND')
+
             # Handle all-day events (date objects)
             if isinstance(dt, date) and not isinstance(dt, datetime):
-                event_date = dt
-                time_str = "00:00"  # All-day events show as midnight
+                event_start_date = dt
+                time_str = "All Day"  # Changed from "00:00" to "All Day"
+
+                # For all-day events, check if it's a multi-day event
+                if dtend:
+                    event_end_date = dtend.dt
+                    if isinstance(event_end_date, datetime):
+                        event_end_date = event_end_date.date()
+                    # For multi-day all-day events, the end date in iCal is exclusive
+                    # So we subtract one day to get the actual last day
+                    event_end_date = event_end_date - timedelta(days=1)
+                else:
+                    event_end_date = event_start_date
+
             else:
                 # Handle datetime objects
-                event_date = dt.date()
+                event_start_date = dt.date()
+                event_end_date = event_start_date  # Single-day event
                 time_str = dt.strftime("%H:%M")
 
-            # Filter by date range
-            if event_date < start_date or event_date > end_date:
-                return None
+            # Check if the event overlaps with our date range
+            # Event overlaps if: event_start <= end_date AND event_end >= start_date
+            if event_end_date < start_date or event_start_date > end_date:
+                return []
 
             # Extract event details
             summary = str(component.get('SUMMARY', 'Untitled Event'))
             uid = str(component.get('UID', ''))
             location = str(component.get('LOCATION', '')) if component.get('LOCATION') else None
 
-            return {
-                'summary': summary,
-                'time': time_str,
-                'date': datetime.combine(event_date, datetime.min.time()),
-                'uid': uid,
-                'location': location,
-            }
+            # Generate one event instance per day in the range
+            events = []
+            current_date = max(event_start_date, start_date)
+            last_date = min(event_end_date, end_date)
+
+            while current_date <= last_date:
+                events.append({
+                    'summary': summary,  # Removed the emoji and date suffix
+                    'time': time_str,
+                    'date': datetime.combine(current_date, datetime.min.time()),
+                    'uid': f"{uid}_{current_date.isoformat()}",  # Unique UID per day
+                    'location': location,
+                })
+
+                current_date += timedelta(days=1)
+
+            return events
 
         except Exception as e:
             # Skip events that fail to parse
             print(f"Warning: Failed to parse event: {e}")
-            return None
+            return []
 
     def _parse_vevent(self, vevent_string: str) -> Optional[dict]:
         """Parse a VEVENT string (for CalDAV)."""

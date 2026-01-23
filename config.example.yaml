@@ -8,38 +8,41 @@ display:
   height: 480
   type: "png"  # "png" for testing, "eink" for production
 
+calendars:
+  # List your calendar sources here
+  # Each calendar will be merged into the main view
+  sources:
+    - name: "School Calendar 1"
+      url: "https://calendar.google.com/calendar/ical/CALENDAR_ID_HERE/public/basic.ics"
+      enabled: true
+
+    - name: "School Calendar 2"
+      url: "https://calendar.google.com/calendar/ical/CALENDAR_ID_HERE/public/basic.ics"
+      enabled: true
+
+    - name: "School Calendar 3"
+      url: "https://calendar.google.com/calendar/ical/CALENDAR_ID_HERE/public/basic.ics"
+      enabled: true
+
+  cache_duration_minutes: 5
+  view_mode: "three_day"  # "single_day" or "three_day"
+
 weather:
   enabled: true
-  city: "London"
+  city: "Your City"
   units: "celsius"  # "celsius" or "fahrenheit"
   api_key: "YOUR_OPENWEATHER_API_KEY"
   # Get free API key: https://openweathermap.org/api
 
-calendar:
-  enabled: true
-  source: "local_file"  # "local_file" or "caldav"
-
-  # Local file option (most private)
-  local_file:
-    path: "./data/calendar.json"
-
-  # CalDAV option (self-hosted recommended)
-  caldav:
-    url: ""
-    username: ""
-    password: ""
-
 shopping_list:
-  enabled: true
+  enabled: false
   file: "./data/shopping_list.json"
 
 tasks:
-  enabled: true
+  enabled: false
   file: "./data/tasks.json"
 
 family:
   members:
-    - name: "Dad"
-    - name: "Mom"
-    - name: "Child1"
-    - name: "Child2"
+    - name: "Member1"
+    - name: "Member2"
