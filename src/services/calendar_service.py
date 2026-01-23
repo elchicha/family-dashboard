@@ -1,48 +1,150 @@
+"""CalDAV calendar service for fetching VEVENT items."""
 from typing import Optional
-
+from datetime import datetime, date, timedelta
 import caldav
-from datetime import datetime, date
+from icalendar import Calendar
 
 
 class CalendarService:
     """CalDAV calendar service for fetching VEVENT items."""
 
-    def __init__(self, url: str, username: str, password: str):
+    def __init__(self, url: str, username: Optional[str] = None, password: Optional[str] = None):
+        """
+        Initialize calendar service.
+
+        Args:
+            url: CalDAV URL or direct .ics URL
+            username: Optional username for authenticated calendars
+            password: Optional password for authenticated calendars
+        """
         self.url = url
         self.username = username
         self.password = password
-        self.client = caldav.DAVClient(url=url, username=username, password=password)
 
-    def get_events(self, events_date: Optional[date] = None) -> list[dict[str, str]]:
-        """Fetch all events for a specific day"""
-        if events_date is None:
-            events_date = date.today()
+        # Only create client if credentials provided (for CalDAV)
+        if username and password:
+            self.client = caldav.DAVClient(url=url, username=username, password=password)
+        else:
+            self.client = None
+
+    def get_events(
+        self,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None
+    ) -> list[dict]:
+        """
+        Fetch events within a date range.
+
+        Args:
+            start_date: Start date (defaults to today)
+            end_date: End date (defaults to today)
+
+        Returns:
+            List of event dictionaries with summary, time, date, uid, location
+        """
+        if start_date is None:
+            start_date = date.today()
+        if end_date is None:
+            end_date = start_date
+
+        # If using CalDAV
+        if self.client:
+            return self._fetch_from_caldav(start_date, end_date)
+        # If using direct .ics URL (like Google Calendar public feed)
+        else:
+            return self._fetch_from_ics_url(start_date, end_date)
+
+    def _fetch_from_caldav(self, start_date: date, end_date: date) -> list[dict]:
+        """Fetch events from CalDAV server."""
         principal = self.client.principal()
         calendars = principal.calendars()
 
-        start = datetime.combine(events_date, datetime.min.time())  # 00:00:00
-        end = datetime.combine(events_date, datetime.max.time())  # 23:59:59
+        start = datetime.combine(start_date, datetime.min.time())
+        end = datetime.combine(end_date, datetime.max.time())
 
-        return [
-            self._parse_vevent(event.data)
-            for calendar in calendars
-            for event in calendar.date_search(start=start, end=end)
-        ]
+        events = []
+        for calendar in calendars:
+            for event in calendar.date_search(start=start, end=end):
+                parsed = self._parse_vevent(event.data)
+                if parsed:
+                    events.append(parsed)
 
-    def _parse_vevent(self, vevent_string: str) -> dict[str, str]:
-        event = {}
-        for line in vevent_string.split("\n"):
-            line = line.strip()
-            if line.startswith("SUMMARY:"):
-                event["summary"] = line.split(":", 1)[1].strip()
-            elif line.startswith("UID:"):
-                event["uid"] = line.split(":", 1)[1].strip()
-            elif line.startswith("DTSTART:"):
-                event["time"] = self._parse_caldav_time(line.split(":", 1)[1].strip())
+        return sorted(events, key=lambda e: (e['date'], e['time']))
 
-        return event
+    def _fetch_from_ics_url(self, start_date: date, end_date: date) -> list[dict]:
+        """Fetch and parse events from a public .ics URL."""
+        import requests
 
-    def _parse_caldav_time(self, dtstart: str) -> str:
-        """Parse CalDAV ISO8601 timestamp to HH:MM format"""
-        dt = datetime.strptime(dtstart, "%Y%m%dT%H%M%SZ")
-        return dt.strftime("%H:%M")
+        response = requests.get(self.url)
+        response.raise_for_status()
+
+        cal = Calendar.from_ical(response.content)
+        events = []
+
+        for component in cal.walk('VEVENT'):
+            parsed = self._parse_ical_event(component, start_date, end_date)
+            if parsed:
+                events.append(parsed)
+
+        return sorted(events, key=lambda e: (e['date'], e['time']))
+
+    def _parse_ical_event(
+        self,
+        component,
+        start_date: date,
+        end_date: date
+    ) -> Optional[dict]:
+        """Parse an iCalendar event component."""
+        try:
+            # Get start date/time
+            dtstart = component.get('DTSTART')
+            if not dtstart:
+                return None
+
+            dt = dtstart.dt
+
+            # Handle all-day events (date objects)
+            if isinstance(dt, date) and not isinstance(dt, datetime):
+                event_date = dt
+                time_str = "00:00"  # All-day events show as midnight
+            else:
+                # Handle datetime objects
+                event_date = dt.date()
+                time_str = dt.strftime("%H:%M")
+
+            # Filter by date range
+            if event_date < start_date or event_date > end_date:
+                return None
+
+            # Extract event details
+            summary = str(component.get('SUMMARY', 'Untitled Event'))
+            uid = str(component.get('UID', ''))
+            location = str(component.get('LOCATION', '')) if component.get('LOCATION') else None
+
+            return {
+                'summary': summary,
+                'time': time_str,
+                'date': datetime.combine(event_date, datetime.min.time()),
+                'uid': uid,
+                'location': location,
+            }
+
+        except Exception as e:
+            # Skip events that fail to parse
+            print(f"Warning: Failed to parse event: {e}")
+            return None
+
+    def _parse_vevent(self, vevent_string: str) -> Optional[dict]:
+        """Parse a VEVENT string (for CalDAV)."""
+        try:
+            cal = Calendar.from_ical(vevent_string)
+            for component in cal.walk('VEVENT'):
+                # Reuse the same parsing logic
+                return self._parse_ical_event(
+                    component,
+                    date.today(),
+                    date.today() + timedelta(days=365)
+                )
+        except Exception as e:
+            print(f"Warning: Failed to parse vevent: {e}")
+            return None

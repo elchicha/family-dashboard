@@ -1,80 +1,26 @@
-from datetime import timedelta
+from datetime import timedelta, date
 from io import BytesIO
 
-from PIL.ImageOps import grayscale
 from flask import Flask, send_file
 
 from src.display.png_display import PNGDisplay
-from src.layout.three_column_layout import ThreeColumnLayout
 from src.layout.two_column_layout import TwoColumnLayout
 from src.widgets.clock_widget import ClockWidget
 from src.widgets.calendar_widget import CalendarWidget
+from src.services.calendar_service import CalendarService
+from src.services.cached_calendar_service import CachedCalendarService
 
 app = Flask(__name__)
 
+# Initialize calendar service with caching (5-minute cache)
+base_service = CalendarService(
+    url="https://calendar.google.com/calendar/ical/jk4klsjkfeqummcgak6colmkso%40group.calendar.google.com/public/basic.ics"
+)
+calendar_service = CachedCalendarService(
+    service=base_service,
+    cache_duration_minutes=5  # Cache for 5 minutes
+)
 
-class MockCalendarService:
-    """Mock service that returns sample events."""
-
-    def get_events(self):
-        from datetime import datetime, timedelta
-
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-
-        return [
-            # TODAY
-            {
-                "summary": "Team Standup",
-                "time": "09:00",
-                "location": "Zoom - Room 3",
-                "date": today,  # ← Added
-                "uid": "1",
-            },
-            {
-                "summary": "Dentist Appointment",
-                "time": "14:30",
-                "location": "123 Main St",
-                "date": today,  # ← Added
-                "uid": "2",
-            },
-            {
-                "summary": "Dinner with Sarah",
-                "time": "18:00",
-                "location": "Downtown Restaurant",
-                "date": today,  # ← Added
-                "uid": "3",
-            },
-            # TOMORROW
-            {
-                "summary": "Client Meeting",
-                "time": "10:00",
-                "location": "Conference Room A",
-                "date": today + timedelta(days=1),
-                "uid": "4",
-            },
-            {
-                "summary": "Grocery Shopping",
-                "time": "16:00",
-                "location": "Whole Foods",
-                "date": today + timedelta(days=1),
-                "uid": "5",
-            },
-            # DAY AFTER TOMORROW
-            {
-                "summary": "Morning Gym",
-                "time": "07:00",
-                "location": "LA Fitness",
-                "date": today + timedelta(days=2),
-                "uid": "6",
-            },
-            {
-                "summary": "Team Lunch",
-                "time": "12:30",
-                "location": "Italian Place",
-                "date": today + timedelta(days=2),
-                "uid": "7",
-            },
-        ]
 
 @app.route("/render/<display_id>")
 def render_display(display_id: str):
@@ -86,18 +32,16 @@ def render_display(display_id: str):
     if display_id == "kitchen":
         clock = ClockWidget()
         layout.add_widget(clock, column="right")
-        calendar_service = MockCalendarService()
+
+        # Use cached calendar service with three-day view
         layout.add_widget(
-            CalendarWidget(calendar_service, view_mode="three_day"),  # ← Change to three_day
+            CalendarWidget(calendar_service, view_mode="three_day"),
             column='left'
         )
-
-        # TODO: Add more widgets
 
     layout.render(display)
     png_bytes = display.get_image_bytes()
 
-    # Return as PNG response
     return send_file(
         BytesIO(png_bytes),
         mimetype="image/png",
@@ -130,6 +74,12 @@ def index():
                 width: 1600px; 
                 image-rendering: pixelated; 
             }
+            .admin-links {
+                margin-top: 30px;
+                padding: 15px;
+                background: #f0f0f0;
+                border-radius: 5px;
+            }
         </style>
     </head>
     <body>
@@ -142,17 +92,64 @@ def index():
             <img src="/render/kitchen" alt="Kitchen Dashboard">
         </div>
 
-        <p><em>Refresh page to see updated content</em></p>
+        <div class="admin-links">
+            <h3>🛠️ Admin Tools</h3>
+            <ul>
+                <li><a href="/debug/calendar">View Raw Calendar Events</a></li>
+                <li><a href="/admin/clear-cache">Clear Calendar Cache</a></li>
+            </ul>
+        </div>
+
+        <p><em>Refresh page to see updated content (calendar cached for 5 minutes)</em></p>
     </body>
     </html>
+    """
+
+
+@app.route("/debug/calendar")
+def debug_calendar():
+    """Debug endpoint to view raw calendar events"""
+    today = date.today()
+    events = calendar_service.get_events(
+        start_date=today,
+        end_date=today + timedelta(days=30),
+    )
+
+    html = "<h1>📅 Calendar Debug</h1>"
+    html += f"<p>Fetching events from {today} to {today + timedelta(days=2)}</p>"
+    html += f"<p><strong>Found {len(events)} events:</strong></p>"
+    html += "<ul style='font-family: monospace;'>"
+
+    for event in events:
+        html += f"<li>{event['date'].strftime('%Y-%m-%d')} {event['time']} - <strong>{event['summary']}</strong>"
+        if event.get('location'):
+            html += f" @ {event['location']}"
+        html += "</li>"
+
+    html += "</ul>"
+    html += "<p><a href='/admin/clear-cache'>Clear cache and refresh</a> | <a href='/'>← Back</a></p>"
+
+    return html
+
+
+@app.route("/admin/clear-cache")
+def clear_cache():
+    """Admin endpoint to manually clear the calendar cache"""
+    calendar_service.clear_cache()
+    return """
+    <h1>🗑️ Cache Cleared</h1>
+    <p>Calendar cache has been cleared. Next request will fetch fresh data.</p>
+    <p><a href='/debug/calendar'>View calendar</a> | <a href='/'>← Back to home</a></p>
     """
 
 
 if __name__ == "__main__":
     print("🚀 Starting Family Dashboard Server...")
     print("📍 Server running at http://localhost:5000")
+    print("📅 Using Arroyo School Calendar (cached for 5 minutes)")
+    print("🔍 Debug calendar at http://localhost:5000/debug/calendar")
+    print("🗑️  Clear cache at http://localhost:5000/admin/clear-cache")
     print("🔄 Press Ctrl+C to stop")
     app.run(debug=True, host="0.0.0.0", port=5000)
 else:
-    # Also print when imported (for debugging)
     print("✅ Flask app loaded successfully")
