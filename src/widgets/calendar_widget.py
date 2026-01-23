@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 
+from src.services.event_categorizer import EventCategory, EventCategorizer
 from src.widgets.widget_interface import WidgetInterface
 
 
@@ -111,7 +112,7 @@ class CalendarWidget(WidgetInterface):
             )
 
     def _render_three_day_view(self, display, x_offset: int, y_offset: int):
-        """Render compact 3-day view."""
+        """Render glanceable 3-day view with smart grouping."""
         padding_left = 15
         padding_top = 20
 
@@ -124,6 +125,15 @@ class CalendarWidget(WidgetInterface):
             end_date=today + timedelta(days=2)
         ) if self.calendar_service else []
 
+        # Categorize all events
+        categorized_events = []
+        for event in all_events:
+            category = EventCategorizer.categorize(event)
+            categorized_events.append({
+                'event': event,
+                'category': category
+            })
+
         # Group events by date
         today_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         days_to_show = [
@@ -132,15 +142,32 @@ class CalendarWidget(WidgetInterface):
             (today_dt + timedelta(days=2), None),
         ]
 
+        first_day = True
+
         for day_index, (date, label) in enumerate(days_to_show):
             # Get events for this day
             day_events = [
-                e for e in all_events
-                if e.get("date", today_dt).date() == date.date()
+                item for item in categorized_events
+                if item['event'].get("date", today_dt).date() == date.date()
             ]
 
+            if not day_events:
+                continue  # Skip days with no events
+
+            # Add divider between days (but not before first day)
+            if not first_day:
+                y_pos = self._render_divider(display, x_offset, y_pos, width=450)
+                y_pos += 15
+            first_day = False
+
+            # Sort by category priority, then by time
+            day_events.sort(key=lambda x: (
+                EventCategorizer.get_category_priority(x['category']),
+                x['event']['time']
+            ))
+
             # Render day header
-            y_pos = self._render_day_header_compact(
+            y_pos = self._render_day_header_smart(
                 display,
                 date,
                 label,
@@ -150,34 +177,305 @@ class CalendarWidget(WidgetInterface):
             )
             y_pos += 8
 
-            # Render events for this day (compact format)
-            if not day_events:
-                y_pos = self._render_no_events_compact(
-                    display,
-                    x_offset + padding_left + 10,
-                    y_pos
+            # Group events by category
+            events_by_category = {}
+            for item in day_events:
+                cat = item['category']
+                if cat not in events_by_category:
+                    events_by_category[cat] = []
+                events_by_category[cat].append(item['event'])
+
+            # Render each category
+            y_pos = self._render_categorized_events(
+                display,
+                events_by_category,
+                x_offset + padding_left,
+                y_pos
+            )
+
+            y_pos += 10  # Space after day's events
+
+    def _render_divider(self, display, x_offset: int, y_pos: int, width: int = 450) -> int:
+        """Render a horizontal divider line."""
+        # Draw a thin line
+        display.draw_line(
+            x1=x_offset + 15,
+            y1=y_pos,
+            x2=x_offset + width,
+            y2=y_pos,
+            color="#CCCCCC",
+            width=1
+        )
+        return y_pos
+
+    def _render_day_header_smart(
+            self,
+            display,
+            date: datetime,
+            label: Optional[str],
+            x_pos: int,
+            y_pos: int,
+            day_index: int
+    ) -> int:
+        """Render clean day header with visual prominence."""
+        # Make today stand out more
+        if day_index == 0:
+            color = "#000000"
+            font_size = 22  # Increased from 18
+        else:
+            color = "#444444"
+            font_size = 20  # Increased from 16
+
+        if label:
+            header = f"{label} - {date.strftime('%a').upper()} {date.strftime('%b %d').upper()}"
+        else:
+            header = date.strftime("%a %b %d").upper()
+
+        display.draw_text(
+            x_pos=x_pos,
+            y_pos=y_pos,
+            text=header,
+            font_size=font_size,
+            color=color,
+        )
+
+        return y_pos + 28  # Increased from 25
+
+    def _render_categorized_events(
+            self,
+            display,
+            events_by_category: dict,
+            x_pos: int,
+            y_pos: int
+    ) -> int:
+        """Render events grouped by category with smart formatting."""
+
+        # Schedule (most important - show prominently)
+        if EventCategory.SCHEDULE in events_by_category:
+            schedules = events_by_category[EventCategory.SCHEDULE]
+            schedule_text = ", ".join([e['summary'] for e in schedules])
+
+            display.draw_text(
+                x_pos=x_pos + 5,
+                y_pos=y_pos,
+                text=f"SCHEDULE: {schedule_text}",
+                font_size=20,  # Increased from 16
+                color="#000000",
+            )
+            y_pos += 28  # Increased from 24
+
+        # No School (very important)
+        if EventCategory.NO_SCHOOL in events_by_category:
+            for event in events_by_category[EventCategory.NO_SCHOOL]:
+                display.draw_text(
+                    x_pos=x_pos + 5,
+                    y_pos=y_pos,
+                    text=f"NO SCHOOL - {event['summary']}",
+                    font_size=20,  # Increased from 16
+                    color="#000000",
                 )
-            else:
-                events_to_show = day_events[:self.events_per_day]
-                remaining = len(day_events) - len(events_to_show)
+                y_pos += 28  # Increased from 24
 
-                for event in events_to_show:
-                    y_pos = self._render_event_compact(
-                        display,
-                        event,
-                        x_offset + padding_left + 10,
-                        y_pos
+        # Family Events (with times)
+        if EventCategory.FAMILY_EVENT in events_by_category:
+            events = events_by_category[EventCategory.FAMILY_EVENT]
+
+            # Show header only if there are events
+            if events:
+                display.draw_text(
+                    x_pos=x_pos + 5,
+                    y_pos=y_pos,
+                    text="EVENTS:",
+                    font_size=17,  # Increased from 14
+                    color="#555555",
+                )
+                y_pos += 24  # Increased from 20
+
+                for event in events[:3]:  # Limit to 3 events
+                    time_str = self._format_time(event["time"])
+                    display.draw_text(
+                        x_pos=x_pos + 15,
+                        y_pos=y_pos,
+                        text=f"{time_str} - {event['summary']}",
+                        font_size=18,  # Increased from 15
+                        color="#000000",
                     )
+                    y_pos += 26  # Increased from 22
 
-                if remaining > 0:
-                    y_pos = self._render_truncation_compact(
-                        display,
-                        remaining,
-                        x_offset + padding_left + 10,
-                        y_pos
+                # Show "more" indicator if needed
+                if len(events) > 3:
+                    display.draw_text(
+                        x_pos=x_pos + 15,
+                        y_pos=y_pos,
+                        text=f"+{len(events) - 3} more",
+                        font_size=14,  # Increased from 12
+                        color="#999999",
                     )
+                    y_pos += 20  # Increased from 18
 
-            y_pos += 15
+        # Ongoing (less prominent)
+        if EventCategory.ONGOING in events_by_category:
+            ongoing = events_by_category[EventCategory.ONGOING]
+            if ongoing:
+                ongoing_text = ", ".join([e['summary'] for e in ongoing[:2]])
+                display.draw_text(
+                    x_pos=x_pos + 5,
+                    y_pos=y_pos,
+                    text=f"Ongoing: {ongoing_text}",
+                    font_size=15,  # Increased from 12
+                    color="#888888",
+                )
+                y_pos += 22  # Increased from 18
+
+        # Deadlines
+        if EventCategory.DEADLINE in events_by_category:
+            for event in events_by_category[EventCategory.DEADLINE]:
+                display.draw_text(
+                    x_pos=x_pos + 5,
+                    y_pos=y_pos,
+                    text=f"DEADLINE: {event['summary']}",
+                    font_size=18,  # Increased from 15
+                    color="#CC0000",
+                )
+                y_pos += 26  # Increased from 22
+
+        return y_pos
+    def _render_day_header_smart(
+            self,
+            display,
+            date: datetime,
+            label: Optional[str],
+            x_pos: int,
+            y_pos: int,
+            day_index: int
+    ) -> int:
+        """Render clean day header."""
+        colors = ["#000000", "#333333", "#666666"]
+        color = colors[day_index]
+
+        if label:
+            header = f"{label} - {date.strftime('%a %b %d').upper()}"
+        else:
+            header = date.strftime("%a %b %d").upper()
+
+        display.draw_text(
+            x_pos=x_pos,
+            y_pos=y_pos,
+            text=header,
+            font_size=16,
+            color=color,
+        )
+
+        return y_pos + 22
+
+    def _render_categorized_events(
+            self,
+            display,
+            events_by_category: dict,
+            x_pos: int,
+            y_pos: int
+    ) -> int:
+        """Render events grouped by category with smart formatting."""
+
+        # Schedule (most important - show prominently)
+        if EventCategory.SCHEDULE in events_by_category:
+            schedules = events_by_category[EventCategory.SCHEDULE]
+
+            for schedule in schedules:
+                source_tag = f"[{schedule.get('source', '')}] " if schedule.get('source') else ""
+                display.draw_text(
+                    x_pos=x_pos + 5,
+                    y_pos=y_pos,
+                    text=f"{source_tag}SCHEDULE: {schedule['summary']}",
+                    font_size=20,
+                    color="#000000",
+                )
+                y_pos += 28
+
+        # No School (very important)
+        if EventCategory.NO_SCHOOL in events_by_category:
+            for event in events_by_category[EventCategory.NO_SCHOOL]:
+                source_tag = f"[{event.get('source', '')}] " if event.get('source') else ""
+                display.draw_text(
+                    x_pos=x_pos + 5,
+                    y_pos=y_pos,
+                    text=f"{source_tag}NO SCHOOL - {event['summary']}",
+                    font_size=20,
+                    color="#000000",
+                )
+                y_pos += 28
+
+        # Family Events (with times)
+        if EventCategory.FAMILY_EVENT in events_by_category:
+            events = events_by_category[EventCategory.FAMILY_EVENT]
+
+            # Show header only if there are events
+            if events:
+                display.draw_text(
+                    x_pos=x_pos + 5,
+                    y_pos=y_pos,
+                    text="EVENTS:",
+                    font_size=17,
+                    color="#555555",
+                )
+                y_pos += 24
+
+                for event in events[:3]:  # Limit to 3 events
+                    time_str = self._format_time(event["time"])
+                    source_tag = f"[{event.get('source', '')}]" if event.get('source') else ""
+
+                    display.draw_text(
+                        x_pos=x_pos + 15,
+                        y_pos=y_pos,
+                        text=f"{time_str} {source_tag} {event['summary']}",
+                        font_size=18,
+                        color="#000000",
+                    )
+                    y_pos += 26
+
+                # Show "more" indicator if needed
+                if len(events) > 3:
+                    display.draw_text(
+                        x_pos=x_pos + 15,
+                        y_pos=y_pos,
+                        text=f"+{len(events) - 3} more",
+                        font_size=14,
+                        color="#999999",
+                    )
+                    y_pos += 20
+
+        # Ongoing (less prominent)
+        if EventCategory.ONGOING in events_by_category:
+            ongoing = events_by_category[EventCategory.ONGOING]
+            if ongoing:
+                # Group by source
+                ongoing_text = ", ".join([
+                    f"[{e.get('source', '')}] {e['summary']}" if e.get('source') else e['summary']
+                    for e in ongoing[:2]
+                ])
+                display.draw_text(
+                    x_pos=x_pos + 5,
+                    y_pos=y_pos,
+                    text=f"Ongoing: {ongoing_text}",
+                    font_size=15,
+                    color="#888888",
+                )
+                y_pos += 22
+
+        # Deadlines
+        if EventCategory.DEADLINE in events_by_category:
+            for event in events_by_category[EventCategory.DEADLINE]:
+                source_tag = f"[{event.get('source', '')}] " if event.get('source') else ""
+                display.draw_text(
+                    x_pos=x_pos + 5,
+                    y_pos=y_pos,
+                    text=f"{source_tag}DEADLINE: {event['summary']}",
+                    font_size=18,
+                    color="#CC0000",
+                )
+                y_pos += 26
+
+        return y_pos
     # ========== Single-Day View Rendering Methods ==========
 
     def _render_header(

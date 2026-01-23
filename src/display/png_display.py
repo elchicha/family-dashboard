@@ -15,12 +15,9 @@ class PNGDisplay(DisplayInterface):
         """Clear to white background"""
         self.draw.rectangle([(0, 0), (self.width, self.height)], fill="white")
 
-    def draw_line(
-        self, x1: int, y1: int, x2: int, y2: int, color: str = "black", width: int = 1
-    ):
-        """Draw a line on the image"""
+    def draw_line(self, x1: int, y1: int, x2: int, y2: int, color: str = "#000000", width: int = 1):
+        """Draw a line on the display."""
         self.draw.line([(x1, y1), (x2, y2)], fill=color, width=width)
-
     def draw_text(
         self, x_pos: int, y_pos: int, text: str, font_size: int, color: str = "#000000"
     ):

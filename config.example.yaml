@@ -13,14 +13,17 @@ calendars:
   # Each calendar will be merged into the main view
   sources:
     - name: "School Calendar 1"
+      short_name: "SCH1"  # Short tag displayed on dashboard
       url: "https://calendar.google.com/calendar/ical/CALENDAR_ID_HERE/public/basic.ics"
       enabled: true
 
     - name: "School Calendar 2"
+      short_name: "SCH2"  # Short tag displayed on dashboard
       url: "https://calendar.google.com/calendar/ical/CALENDAR_ID_HERE/public/basic.ics"
       enabled: true
 
     - name: "School Calendar 3"
+      short_name: "SCH3"  # Short tag displayed on dashboard
       url: "https://calendar.google.com/calendar/ical/CALENDAR_ID_HERE/public/basic.ics"
       enabled: true
 

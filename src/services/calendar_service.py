@@ -8,7 +8,7 @@ from icalendar import Calendar
 class CalendarService:
     """CalDAV calendar service for fetching VEVENT items."""
 
-    def __init__(self, url: str, username: Optional[str] = None, password: Optional[str] = None):
+    def __init__(self, url: str, username: Optional[str] = None, password: Optional[str] = None, source_name: Optional[str] = None):
         """
         Initialize calendar service.
 
@@ -16,10 +16,12 @@ class CalendarService:
             url: CalDAV URL or direct .ics URL
             username: Optional username for authenticated calendars
             password: Optional password for authenticated calendars
+            source_name: Optional name to tag events with (e.g., "Arroyo", "SFHS")
         """
         self.url = url
         self.username = username
         self.password = password
+        self.source_name = source_name
 
         # Only create client if credentials provided (for CalDAV)
         if username and password:
@@ -84,7 +86,10 @@ class CalendarService:
         for component in cal.walk('VEVENT'):
             parsed_events = self._parse_ical_event(component, start_date, end_date)
             if parsed_events:
-                # _parse_ical_event now returns a list of events (one per day)
+                # Add source name to each event
+                for event in parsed_events:
+                    if self.source_name:
+                        event['source'] = self.source_name
                 events.extend(parsed_events)
 
         return sorted(events, key=lambda e: (e['date'], e['time']))
@@ -110,7 +115,7 @@ class CalendarService:
             # Handle all-day events (date objects)
             if isinstance(dt, date) and not isinstance(dt, datetime):
                 event_start_date = dt
-                time_str = "All Day"  # Changed from "00:00" to "All Day"
+                time_str = "All Day"
 
                 # For all-day events, check if it's a multi-day event
                 if dtend:
@@ -124,13 +129,21 @@ class CalendarService:
                     event_end_date = event_start_date
 
             else:
-                # Handle datetime objects
+                # Handle datetime objects with timezone conversion
                 event_start_date = dt.date()
                 event_end_date = event_start_date  # Single-day event
-                time_str = dt.strftime("%H:%M")
+
+                # Convert to local timezone if needed
+                if hasattr(dt, 'tzinfo') and dt.tzinfo is not None:
+                    # Convert to local time
+                    import pytz
+                    local_tz = pytz.timezone('America/Los_Angeles')  # Pacific Time
+                    if dt.tzinfo != local_tz:
+                        dt = dt.astimezone(local_tz)
+
+                time_str = dt.strftime("%-I:%M %p")  # e.g., "4:05 PM" (no leading zero)
 
             # Check if the event overlaps with our date range
-            # Event overlaps if: event_start <= end_date AND event_end >= start_date
             if event_end_date < start_date or event_start_date > end_date:
                 return []
 
@@ -146,10 +159,10 @@ class CalendarService:
 
             while current_date <= last_date:
                 events.append({
-                    'summary': summary,  # Removed the emoji and date suffix
+                    'summary': summary,
                     'time': time_str,
                     'date': datetime.combine(current_date, datetime.min.time()),
-                    'uid': f"{uid}_{current_date.isoformat()}",  # Unique UID per day
+                    'uid': f"{uid}_{current_date.isoformat()}",
                     'location': location,
                 })
 
@@ -161,7 +174,6 @@ class CalendarService:
             # Skip events that fail to parse
             print(f"Warning: Failed to parse event: {e}")
             return []
-
     def _parse_vevent(self, vevent_string: str) -> Optional[dict]:
         """Parse a VEVENT string (for CalDAV)."""
         try:

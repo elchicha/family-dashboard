@@ -58,7 +58,10 @@ config = load_config()
 calendar_services = []
 for cal_config in config['calendars']['sources']:
     if cal_config.get('enabled', True):
-        base_service = CalendarService(url=cal_config['url'])
+        base_service = CalendarService(
+            url=cal_config['url'],
+            source_name=cal_config.get('short_name', cal_config.get('name', 'Unknown'))  # Pass the name
+        )
         cached_service = CachedCalendarService(
             service=base_service,
             cache_duration_minutes=config['calendars']['cache_duration_minutes']
