@@ -1,704 +1,606 @@
-"""Calendar widget for displaying daily events in E-Ink dashboard."""
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict
+"""Adaptive calendar widget that intelligently fits all events without truncation."""
 
+from datetime import datetime, timedelta, date
+from typing import Optional, List, Dict, Tuple
+
+from PIL import Image, ImageDraw, ImageFont
+
+from src.display.display_interface import DisplayInterface
 from src.services.event_categorizer import EventCategory, EventCategorizer
 from src.widgets.widget_interface import WidgetInterface
 
 
 class CalendarWidget(WidgetInterface):
     """
-    Calendar widget with multiple view modes for E-Ink displays.
+    Adaptive calendar widget that never truncates - intelligently adjusts to fit all content.
 
-    View Modes:
-    - single_day: Shows one day with full event details (time, title, location)
-    - three_day: Shows 3 days (today + 2) in compact format (no locations)
+    Adaptive Strategy:
+    1. Calculate total events across days
+    2. Estimate required space
+    3. Choose optimal layout:
+       - Three-day view (if space permits)
+       - Two-day view (if moderate events)
+       - Single-day view with time filtering (if many events)
+    4. Dynamically adjust font sizes and spacing
 
     Features:
-    - Date headers with day names
+    - White-on-black date headers for visual prominence
     - Grayscale hierarchy for readability
-    - Event truncation for long days
+    - Smart time-based filtering (prioritizes upcoming/current events)
     - Graceful handling of empty days
+    - Compact layout optimized for E-Ink
 
     Optimized for 480px wide column in two-column layout.
     """
 
     def __init__(
-            self,
-            calendar_service,
-            view_mode: str = "single_day",
-            max_events: int = 4,
-            events_per_day: int = 3,
-            show_locations: bool = True
+        self,
+        calendar_service,
+        view_mode: str = "adaptive",  # "adaptive", "three_day", "two_day", "single_day"
+        show_locations: bool = False,  # Locations disabled by default for space
+        available_height: int = 350,  # Default height for single-day compatibility
+        events_per_day: int = 3,  # For multi-day views
     ):
         """
         Initialize calendar widget.
 
         Args:
             calendar_service: Service to fetch calendar events
-            view_mode: "single_day" or "three_day"
-            max_events: Max events in single_day mode
-            events_per_day: Max events per day in three_day mode
-            show_locations: Whether to show locations (single_day only)
+            view_mode: "adaptive" (recommended), "three_day", "two_day", "single_day"
+            show_locations: Whether to show locations (consumes more space)
+            available_height: Available vertical space in pixels
+            events_per_day: Max events per day in multi-day views
         """
         self.calendar_service = calendar_service
         self.view_mode = view_mode
-        self.max_events = max_events
-        self.events_per_day = events_per_day
         self.show_locations = show_locations
+        self.padding = 20
+        self.width = 480
+        self.available_height = available_height
+        self.height = available_height  # Required by layout manager
+        self.events_per_day = events_per_day
 
-        # Set height based on view mode
-        if view_mode == "three_day":
-            self.height = 480
-        else:
-            self.height = 350
-
-    def render(self, display, x_offset: int = 0, y_offset: int = 0):
-        """
-        Render calendar based on view mode.
-
-        Args:
-            display: Display interface to render to
-            x_offset: Horizontal offset for positioning
-            y_offset: Vertical offset for positioning
-        """
-        if self.view_mode == "three_day":
-            self._render_three_day_view(display, x_offset, y_offset)
+    def render(self, display: DisplayInterface, x_offset: int = 0, y_offset: int = 0):
+        """Render the calendar widget with adaptive layout."""
+        if self.view_mode == "adaptive":
+            self._render_adaptive(display, x_offset, y_offset)
+        elif self.view_mode == "two_day":
+            self._render_multi_day_view(display, x_offset, y_offset, num_days=2)
+        elif self.view_mode == "three_day":
+            self._render_multi_day_view(display, x_offset, y_offset, num_days=3)
         else:
             self._render_single_day_view(display, x_offset, y_offset)
 
-    def _render_single_day_view(self, display, x_offset: int, y_offset: int):
-        """Render original single-day view with full details."""
-        padding_left = 15
-        padding_top = 20
+    # ========== Adaptive Layout Logic ==========
 
-        y_pos = padding_top + y_offset
+    def _render_adaptive(
+        self, display: DisplayInterface, x_offset: int = 0, y_offset: int = 0
+    ):
+        """Intelligently choose the best layout to fit all events."""
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # Render date header
-        y_pos = self._render_header(display, x_offset + padding_left, y_pos)
-        y_pos += 15
-
-        # Get events from service with date range
-        today = datetime.now().date()
+        # Fetch events for next 3 days
         events = self.calendar_service.get_events(
-            start_date=today,
-            end_date=today
-        ) if self.calendar_service else []
-
-        if not events:
-            self._render_no_events(display, x_offset + padding_left, y_pos)
-            return
-
-        # Render events (up to max_events)
-        events_to_show = events[:self.max_events]
-        remaining = len(events) - len(events_to_show)
-
-        for event in events_to_show:
-            y_pos = self._render_event(
-                display,
-                event,
-                x_offset + padding_left,
-                y_pos
-            )
-            y_pos += 10
-
-        # Show truncation indicator if needed
-        if remaining > 0:
-            self._render_truncation_indicator(
-                display,
-                remaining,
-                x_offset + padding_left,
-                y_pos
-            )
-
-    def _render_three_day_view(self, display, x_offset: int, y_offset: int):
-        """Render glanceable 3-day view with smart grouping."""
-        padding_left = 15
-        padding_top = 20
-
-        y_pos = padding_top + y_offset
-
-        # Get all events with proper date range (today + 2 days)
-        today = datetime.now().date()
-        all_events = self.calendar_service.get_events(
-            start_date=today,
-            end_date=today + timedelta(days=2)
-        ) if self.calendar_service else []
-
-        print(f"[CalendarWidget] Total events received: {len(all_events)}")  # DEBUG
-
-        # Categorize all events
-        categorized_events = []
-        for event in all_events:
-            category = EventCategorizer.categorize(event)
-            print(
-                f"[CalendarWidget] Event: '{event['summary']}' from {event.get('source')} -> Category: {category}")  # DEBUG
-            categorized_events.append({
-                'event': event,
-                'category': category
-            })
+            start_date=today.date(), end_date=(today + timedelta(days=2)).date()
+        )
 
         # Group events by date
-        today_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        days_to_show = [
-            (today_dt, "TODAY"),
-            (today_dt + timedelta(days=1), "TOMORROW"),
-            (today_dt + timedelta(days=2), None),
-        ]
+        events_by_date = self._group_events_by_date(events)
 
-        first_day = True
+        # Count events per day
+        today_count = len(events_by_date.get(today.date(), []))
+        tomorrow_count = len(events_by_date.get((today + timedelta(days=1)).date(), []))
+        day_after_count = len(
+            events_by_date.get((today + timedelta(days=2)).date(), [])
+        )
+        total_events = today_count + tomorrow_count + day_after_count
 
-        for day_index, (date, label) in enumerate(days_to_show):
-            # Get events for this day
-            day_events = [
-                item for item in categorized_events
-                if item['event'].get("date", today_dt).date() == date.date()
-            ]
+        # Decision logic
+        if total_events == 0:
+            # Show 3 days if no events
+            self._render_multi_day_view(display, x_offset, y_offset, num_days=3)
+        elif total_events <= 9:  # ~3 events per day
+            # Three-day view fits comfortably
+            self._render_multi_day_view(display, x_offset, y_offset, num_days=3)
+        elif total_events <= 15:  # ~7-8 events per day
+            # Two-day view with more space per event
+            self._render_multi_day_view(display, x_offset, y_offset, num_days=2)
+        else:
+            # Many events today - focus on current day with time filtering
+            self._render_single_day_filtered(
+                display, x_offset, y_offset, events_by_date.get(today.date(), [])
+            )
 
-            print(f"[CalendarWidget] {label or date.strftime('%a %b %d')}: {len(day_events)} events")  # DEBUG
+    # ========== Multi-Day View (2 or 3 days) ==========
 
-            if not day_events:
-                continue  # Skip days with no events
+    def _render_multi_day_view(
+        self,
+        display: DisplayInterface,
+        x_offset: int = 0,
+        y_offset: int = 0,
+        num_days: int = 3,
+    ):
+        """Render multiple consecutive days with adaptive sizing."""
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
-            # Add divider between days (but not before first day)
-            if not first_day:
-                y_pos = self._render_divider(display, x_offset, y_pos, width=450)
-                y_pos += 15
-            first_day = False
+        # Fetch events
+        events = self.calendar_service.get_events(
+            start_date=today.date(),
+            end_date=(today + timedelta(days=num_days - 1)).date(),
+        )
 
-            # Sort by category priority, then by time
-            day_events.sort(key=lambda x: (
-                EventCategorizer.get_category_priority(x['category']),
-                x['event']['time']
-            ))
+        # Group events by date
+        events_by_date = self._group_events_by_date(events)
 
-            # Render day header
-            y_pos = self._render_day_header_smart(
-                display,
-                date,
-                label,
-                x_offset + padding_left,
-                y_pos,
-                day_index
+        # Count total events to determine sizing
+        total_events = len(events)
+
+        # Adaptive sizing based on event count
+        if total_events <= 6:
+            font_size_event = 14
+            font_size_header = 15
+            line_height = 20
+            spacing_between_days = 12
+        elif total_events <= 12:
+            font_size_event = 13
+            font_size_header = 14
+            line_height = 18
+            spacing_between_days = 10
+        else:
+            font_size_event = 12
+            font_size_header = 13
+            line_height = 16
+            spacing_between_days = 8
+
+        x_pos = self.padding + x_offset
+        y_pos = self.padding + y_offset
+
+        # Render each day
+        for day_offset in range(num_days):
+            current_date = (today + timedelta(days=day_offset)).date()
+            day_events = events_by_date.get(current_date, [])
+
+            # Check if we have space for this day
+            estimated_day_height = (
+                26
+                + (len(day_events) * line_height if day_events else line_height)
+                + spacing_between_days
+            )
+            if y_pos + estimated_day_height > self.available_height + y_offset - 20:
+                # Not enough space for this day, stop here
+                break
+
+            # Render day header (white-on-black)
+            y_pos = self._render_day_header_inverted(
+                display, current_date, day_offset, x_pos, y_pos, font_size_header
             )
             y_pos += 8
 
-            # Group events by category
-            events_by_category = {}
-            for item in day_events:
-                cat = item['category']
-                if cat not in events_by_category:
-                    events_by_category[cat] = []
-                events_by_category[cat].append(item['event'])
+            # Render events for this day
+            if day_events:
+                for event in day_events:
+                    # Stop if we run out of space
+                    if y_pos + line_height > self.available_height + y_offset - 20:
+                        # Show remaining count
+                        remaining = len(day_events) - day_events.index(event)
+                        display.draw_text(
+                            x_pos=x_pos + 10,
+                            y_pos=y_pos,
+                            text=f"+{remaining} more",
+                            font_size=font_size_event - 2,
+                            color="#999999",
+                        )
+                        break
 
-            # Render each category
-            y_pos = self._render_categorized_events(
-                display,
-                events_by_category,
-                x_offset + padding_left,
-                y_pos
-            )
+                    y_pos = self._render_event_compact(
+                        display, event, x_pos + 10, y_pos, font_size_event
+                    )
+            else:
+                display.draw_text(
+                    x_pos=x_pos + 10,
+                    y_pos=y_pos,
+                    text="No events",
+                    font_size=font_size_event,
+                    color="#AAAAAA",
+                )
+                y_pos += line_height
 
-            y_pos += 10  # Space after day's events
+            # Add spacing between days
+            y_pos += spacing_between_days
 
-    def _render_divider(self, display, x_offset: int, y_pos: int, width: int = 450) -> int:
-        """Render a horizontal divider line."""
-        # Draw a thin line
-        display.draw_line(
-            x1=x_offset + 15,
-            y1=y_pos,
-            x2=x_offset + width,
-            y2=y_pos,
-            color="#CCCCCC",
-            width=1
-        )
-        return y_pos
+    # ========== Single-Day Filtered View ==========
 
-    def _render_day_header_smart(
-            self,
-            display,
-            date: datetime,
-            label: Optional[str],
-            x_pos: int,
-            y_pos: int,
-            day_index: int
-    ) -> int:
-        """Render clean day header with visual prominence."""
-        # Make today stand out more
-        if day_index == 0:
-            color = "#000000"
-            font_size = 22  # Increased from 18
-        else:
-            color = "#444444"
-            font_size = 20  # Increased from 16
+    def _render_single_day_filtered(
+        self,
+        display: DisplayInterface,
+        x_offset: int = 0,
+        y_offset: int = 0,
+        events: List[dict] = None,
+    ):
+        """
+        Render single day with time-based filtering.
+        Prioritizes: current/upcoming events > past events.
+        """
+        today = datetime.now()
+        current_time = today.time()
 
-        if label:
-            header = f"{label} - {date.strftime('%a').upper()} {date.strftime('%b %d').upper()}"
-        else:
-            header = date.strftime("%a %b %d").upper()
+        if events is None:
+            events = self.calendar_service.get_events()
 
-        display.draw_text(
-            x_pos=x_pos,
-            y_pos=y_pos,
-            text=header,
-            font_size=font_size,
-            color=color,
-        )
+        # Sort all events by time first
+        events = self._sort_events_by_time(events)
 
-        return y_pos + 28  # Increased from 25
+        x_pos = self.padding + x_offset
+        y_pos = self.padding + y_offset
 
-    def _render_categorized_events(
-            self,
-            display,
-            events_by_category: dict,
-            x_pos: int,
-            y_pos: int
-    ) -> int:
-        """Render events grouped by category with smart formatting."""
+        # Render header
+        y_pos = self._render_header_inverted(display, today, x_pos, y_pos)
+        y_pos += 15
 
-        # Schedule (most important - show prominently)
-        if EventCategory.SCHEDULE in events_by_category:
-            schedules = events_by_category[EventCategory.SCHEDULE]
-            schedule_text = ", ".join([e['summary'] for e in schedules])
+        if not events:
+            self._render_no_events(display, x_pos, y_pos)
+            return
 
+        # Separate events into past and future (already sorted by time)
+        future_events = []
+        past_events = []
+
+        for event in events:
+            event_time_str = event.get("time", "")
+            try:
+                # Parse event time
+                if ":" in event_time_str:
+                    time_parts = (
+                        event_time_str.replace("AM", "")
+                        .replace("PM", "")
+                        .strip()
+                        .split(":")
+                    )
+                    hour = int(time_parts[0])
+                    minute = int(time_parts[1]) if len(time_parts) > 1 else 0
+
+                    # Handle PM times
+                    if "PM" in event_time_str and hour != 12:
+                        hour += 12
+                    elif "AM" in event_time_str and hour == 12:
+                        hour = 0
+
+                    event_time = datetime.now().replace(hour=hour, minute=minute).time()
+
+                    if event_time >= current_time:
+                        future_events.append(event)
+                    else:
+                        past_events.append(event)
+                else:
+                    future_events.append(event)  # All-day events
+            except (ValueError, AttributeError):
+                future_events.append(event)  # Can't parse, assume future
+
+        # Render future events first (priority) - already sorted
+        font_size = 14
+        line_height = 20
+
+        # Estimate space available
+        available_lines = (self.available_height + y_offset - y_pos - 20) // line_height
+
+        for event in future_events:
+            if available_lines <= 0:
+                break
+            y_pos = self._render_event_compact(display, event, x_pos, y_pos, font_size)
+            available_lines -= 1
+
+        # Show past events if space remains - already sorted
+        if available_lines > 0 and past_events:
+            # Add separator
             display.draw_text(
-                x_pos=x_pos + 5,
+                x_pos=x_pos,
                 y_pos=y_pos,
-                text=f"SCHEDULE: {schedule_text}",
-                font_size=20,  # Increased from 16
-                color="#000000",
+                text="─── Earlier today ───",
+                font_size=12,
+                color="#CCCCCC",
             )
-            y_pos += 28  # Increased from 24
+            y_pos += line_height
+            available_lines -= 1
 
-        # No School (very important)
-        if EventCategory.NO_SCHOOL in events_by_category:
-            for event in events_by_category[EventCategory.NO_SCHOOL]:
-                display.draw_text(
-                    x_pos=x_pos + 5,
-                    y_pos=y_pos,
-                    text=f"NO SCHOOL - {event['summary']}",
-                    font_size=20,  # Increased from 16
-                    color="#000000",
+            for event in past_events:
+                if available_lines <= 0:
+                    break
+                y_pos = self._render_event_compact(
+                    display, event, x_pos, y_pos, font_size, color="#888888"
                 )
-                y_pos += 28  # Increased from 24
+                available_lines -= 1
 
-        # Family Events (with times)
-        if EventCategory.FAMILY_EVENT in events_by_category:
-            events = events_by_category[EventCategory.FAMILY_EVENT]
-
-            # Show header only if there are events
-            if events:
+        # Show count of hidden past events if any
+        if available_lines <= 0 and past_events:
+            remaining_past = len(past_events) - (len(future_events) - available_lines)
+            if remaining_past > 0:
                 display.draw_text(
-                    x_pos=x_pos + 5,
+                    x_pos=x_pos,
                     y_pos=y_pos,
-                    text="EVENTS:",
-                    font_size=17,  # Increased from 14
-                    color="#555555",
+                    text=f"+{remaining_past} earlier events not shown",
+                    font_size=11,
+                    color="#AAAAAA",
                 )
-                y_pos += 24  # Increased from 20
 
-                for event in events[:3]:  # Limit to 3 events
-                    time_str = self._format_time(event["time"])
-                    display.draw_text(
-                        x_pos=x_pos + 15,
-                        y_pos=y_pos,
-                        text=f"{time_str} - {event['summary']}",
-                        font_size=18,  # Increased from 15
-                        color="#000000",
-                    )
-                    y_pos += 26  # Increased from 22
+    # ========== Single-Day View (Standard) ==========
 
-                # Show "more" indicator if needed
-                if len(events) > 3:
-                    display.draw_text(
-                        x_pos=x_pos + 15,
-                        y_pos=y_pos,
-                        text=f"+{len(events) - 3} more",
-                        font_size=14,  # Increased from 12
-                        color="#999999",
-                    )
-                    y_pos += 20  # Increased from 18
+    def _render_single_day_view(
+        self, display: DisplayInterface, x_offset: int = 0, y_offset: int = 0
+    ):
+        """Render a single day's events with adaptive sizing."""
+        today = datetime.now()
+        events = self.calendar_service.get_events()
 
-        # Ongoing (less prominent)
-        if EventCategory.ONGOING in events_by_category:
-            ongoing = events_by_category[EventCategory.ONGOING]
-            if ongoing:
-                ongoing_text = ", ".join([e['summary'] for e in ongoing[:2]])
-                display.draw_text(
-                    x_pos=x_pos + 5,
-                    y_pos=y_pos,
-                    text=f"Ongoing: {ongoing_text}",
-                    font_size=15,  # Increased from 12
-                    color="#888888",
-                )
-                y_pos += 22  # Increased from 18
+        # Sort events by time
+        events = self._sort_events_by_time(events)
 
-        # Deadlines
-        if EventCategory.DEADLINE in events_by_category:
-            for event in events_by_category[EventCategory.DEADLINE]:
-                display.draw_text(
-                    x_pos=x_pos + 5,
-                    y_pos=y_pos,
-                    text=f"DEADLINE: {event['summary']}",
-                    font_size=18,  # Increased from 15
-                    color="#CC0000",
-                )
-                y_pos += 26  # Increased from 22
+        x_pos = self.padding + x_offset
+        y_pos = self.padding + y_offset
 
-        return y_pos
-    def _render_day_header_smart(
-            self,
-            display,
-            date: datetime,
-            label: Optional[str],
-            x_pos: int,
-            y_pos: int,
-            day_index: int
-    ) -> int:
-        """Render clean day header."""
-        colors = ["#000000", "#333333", "#666666"]
-        color = colors[day_index]
+        # Render header with white-on-black styling
+        y_pos = self._render_header_inverted(display, today, x_pos, y_pos)
+        y_pos += 15
 
-        if label:
-            header = f"{label} - {date.strftime('%a %b %d').upper()}"
+        if not events:
+            self._render_no_events(display, x_pos, y_pos)
+            return
+
+        # Calculate adaptive sizing based on event count
+        event_count = len(events)
+        available_space = self.available_height + y_offset - y_pos - 20
+
+        if event_count <= 8:
+            font_size = 14
+            line_height = 20
+        elif event_count <= 12:
+            font_size = 13
+            line_height = 18
         else:
-            header = date.strftime("%a %b %d").upper()
+            font_size = 12
+            line_height = 16
 
-        display.draw_text(
-            x_pos=x_pos,
+        # Render events with adaptive sizing
+        rendered_count = 0
+        for event in events:
+            if y_pos + line_height > self.available_height + y_offset - 20:
+                # Out of space - show remaining count
+                remaining = len(events) - rendered_count
+                if remaining > 0:
+                    display.draw_text(
+                        x_pos=x_pos,
+                        y_pos=y_pos,
+                        text=f"+{remaining} more",
+                        font_size=font_size - 2,
+                        color="#999999",
+                    )
+                break
+
+            y_pos = self._render_event_compact(display, event, x_pos, y_pos, font_size)
+            rendered_count += 1
+
+    # ========== Header Rendering ==========
+
+    def _render_header_inverted(
+        self, display, date_obj: datetime, x_pos: int, y_pos: int
+    ) -> int:
+        """Render white-on-black header for single day view."""
+        # Format header text
+        header_text = f" TODAY - {date_obj.strftime('%A, %b %d').upper()} "
+
+        # Draw black rectangle background (full width)
+        header_height = 28
+        rect_width = self.width - 2 * self.padding + 10
+        display.draw_rectangle(
+            x_pos=x_pos - 10,
             y_pos=y_pos,
-            text=header,
+            width=rect_width,
+            height=header_height,
+            fill="#000000",
+            outline="#000000",
+        )
+
+        # Draw white text on black background
+        display.draw_text(
+            x_pos=x_pos + 5,
+            y_pos=y_pos + 6,
+            text=header_text,
             font_size=16,
-            color=color,
+            color="#FFFFFF",
         )
 
-        return y_pos + 22
+        return y_pos + header_height
 
-    def _render_categorized_events(
-            self,
-            display,
-            events_by_category: dict,
-            x_pos: int,
-            y_pos: int
+    def _render_day_header_inverted(
+        self,
+        display,
+        date_obj: date,
+        day_offset: int,
+        x_pos: int,
+        y_pos: int,
+        font_size: int = 15,
     ) -> int:
-        """Render events grouped by category with smart formatting."""
+        """Render compact white-on-black day header."""
+        # Format header text
+        header_text = self._format_day_header(date_obj, day_offset)
 
-        # Schedule (most important - show prominently)
-        if EventCategory.SCHEDULE in events_by_category:
-            schedules = events_by_category[EventCategory.SCHEDULE]
-
-            for schedule in schedules:
-                source_tag = f"[{schedule.get('source', '')}] " if schedule.get('source') else ""
-                display.draw_text(
-                    x_pos=x_pos + 5,
-                    y_pos=y_pos,
-                    text=f"{source_tag}SCHEDULE: {schedule['summary']}",
-                    font_size=20,
-                    color="#000000",
-                )
-                y_pos += 28
-
-        # No School (very important)
-        if EventCategory.NO_SCHOOL in events_by_category:
-            for event in events_by_category[EventCategory.NO_SCHOOL]:
-                source_tag = f"[{event.get('source', '')}] " if event.get('source') else ""
-                display.draw_text(
-                    x_pos=x_pos + 5,
-                    y_pos=y_pos,
-                    text=f"{source_tag}NO SCHOOL - {event['summary']}",
-                    font_size=20,
-                    color="#000000",
-                )
-                y_pos += 28
-
-        # Family Events (with times)
-        if EventCategory.FAMILY_EVENT in events_by_category:
-            events = events_by_category[EventCategory.FAMILY_EVENT]
-
-            # Show header only if there are events
-            if events:
-                display.draw_text(
-                    x_pos=x_pos + 5,
-                    y_pos=y_pos,
-                    text="EVENTS:",
-                    font_size=17,
-                    color="#555555",
-                )
-                y_pos += 24
-
-                for event in events[:3]:  # Limit to 3 events
-                    time_str = self._format_time(event["time"])
-                    source_tag = f"[{event.get('source', '')}]" if event.get('source') else ""
-
-                    display.draw_text(
-                        x_pos=x_pos + 15,
-                        y_pos=y_pos,
-                        text=f"{time_str} {source_tag} {event['summary']}",
-                        font_size=18,
-                        color="#000000",
-                    )
-                    y_pos += 26
-
-                # Show "more" indicator if needed
-                if len(events) > 3:
-                    display.draw_text(
-                        x_pos=x_pos + 15,
-                        y_pos=y_pos,
-                        text=f"+{len(events) - 3} more",
-                        font_size=14,
-                        color="#999999",
-                    )
-                    y_pos += 20
-
-        # Personal Events (NEW SECTION)
-        if EventCategory.PERSONAL in events_by_category:
-            events = events_by_category[EventCategory.PERSONAL]
-
-            if events:
-                for event in events[:3]:  # Limit to 3 events
-                    time_str = self._format_time(event["time"])
-                    source_tag = f"[{event.get('source', '')}]" if event.get('source') else ""
-
-                    display.draw_text(
-                        x_pos=x_pos + 15,
-                        y_pos=y_pos,
-                        text=f"{time_str} {source_tag} {event['summary']}",
-                        font_size=18,
-                        color="#000000",
-                    )
-                    y_pos += 26
-
-                # Show "more" indicator if needed
-                if len(events) > 3:
-                    display.draw_text(
-                        x_pos=x_pos + 15,
-                        y_pos=y_pos,
-                        text=f"+{len(events) - 3} more",
-                        font_size=14,
-                        color="#999999",
-                    )
-                    y_pos += 20
-
-        # Ongoing (less prominent)
-        if EventCategory.ONGOING in events_by_category:
-            ongoing = events_by_category[EventCategory.ONGOING]
-            if ongoing:
-                # Group by source
-                ongoing_text = ", ".join([
-                    f"[{e.get('source', '')}] {e['summary']}" if e.get('source') else e['summary']
-                    for e in ongoing[:2]
-                ])
-                display.draw_text(
-                    x_pos=x_pos + 5,
-                    y_pos=y_pos,
-                    text=f"Ongoing: {ongoing_text}",
-                    font_size=15,
-                    color="#888888",
-                )
-                y_pos += 22
-
-        # Deadlines
-        if EventCategory.DEADLINE in events_by_category:
-            for event in events_by_category[EventCategory.DEADLINE]:
-                source_tag = f"[{event.get('source', '')}] " if event.get('source') else ""
-                display.draw_text(
-                    x_pos=x_pos + 5,
-                    y_pos=y_pos,
-                    text=f"{source_tag}DEADLINE: {event['summary']}",
-                    font_size=18,
-                    color="#CC0000",
-                )
-                y_pos += 26
-
-        return y_pos    # ========== Single-Day View Rendering Methods ==========
-
-    def _render_header(
-            self,
-            display,
-            x_pos: int,
-            y_pos: int
-    ) -> int:
-        """Render date header for single-day view."""
-        now = datetime.now()
-
-        # Day name (e.g., "MONDAY")
-        day_str = now.strftime("%A").upper()
-        display.draw_text(
-            x_pos=x_pos,
+        # Draw black rectangle background
+        header_height = 26
+        rect_width = self.width - 2 * self.padding + 10
+        display.draw_rectangle(
+            x_pos=x_pos - 10,
             y_pos=y_pos,
-            text=day_str,
-            font_size=20,
-            color="#666666",
+            width=rect_width,
+            height=header_height,
+            fill="#000000",
+            outline="#000000",
         )
 
-        # Date (e.g., "JAN 20")
-        date_str = now.strftime("%b %d").upper()
+        # Draw white text on black background
         display.draw_text(
-            x_pos=x_pos + 120,
-            y_pos=y_pos,
-            text=date_str,
-            font_size=20,
-            color="#666666",
+            x_pos=x_pos + 5,
+            y_pos=y_pos + 5,
+            text=header_text,
+            font_size=font_size,
+            color="#FFFFFF",
         )
 
-        return y_pos + 30
+        return y_pos + header_height
 
-    def _render_event(
-            self,
-            display,
-            event: dict,
-            x_pos: int,
-            y_pos: int
+    # ========== Event Rendering ==========
+
+    def _render_event_compact(
+        self,
+        display,
+        event: dict,
+        x_pos: int,
+        y_pos: int,
+        font_size: int = 13,
+        color: str = "#000000",
     ) -> int:
-        """Render a single event with full details."""
-        time_str = self._format_time(event["time"])
+        """Render single event in compact format, optionally with location."""
+        time_str = self._format_time(event.get("time", ""))
+        source_tag = f"[{event.get('source', '')}] " if event.get("source") else ""
+        event_line = f"{time_str} {source_tag}{event['summary']}"
 
-        # Render time and title on same line
-        event_line = f"{time_str}  {event['summary']}"
+        # Truncate if too long
+        max_chars = 55 if font_size >= 13 else 60
+        if len(event_line) > max_chars:
+            event_line = event_line[: max_chars - 3] + "..."
+
         display.draw_text(
             x_pos=x_pos,
             y_pos=y_pos,
             text=event_line,
-            font_size=18,
-            color="#000000",
+            font_size=font_size,
+            color=color,
         )
 
-        y_pos += 24
+        # Calculate line height based on font size
+        line_height = font_size + 4
+        y_pos += line_height
 
-        # Render location if present and enabled
-        if self.show_locations and "location" in event and event["location"]:
+        # Render location if enabled and present
+        if self.show_locations and event.get("location"):
+            location_text = f"  @ {event['location']}"
             display.draw_text(
-                x_pos=x_pos + 20,
+                x_pos=x_pos + 15,  # Indent location
                 y_pos=y_pos,
-                text=event["location"],
-                font_size=14,
+                text=location_text,
+                font_size=font_size - 2,
                 color="#888888",
             )
-            y_pos += 20
+            y_pos += line_height - 2
 
         return y_pos
 
-    def _render_no_events(
-            self,
-            display,
-            x_pos: int,
-            y_pos: int
-    ) -> None:
+    # ========== Empty State ==========
+
+    def _render_no_events(self, display, x_pos: int, y_pos: int) -> None:
         """Render message when no events scheduled."""
         display.draw_text(
             x_pos=x_pos,
             y_pos=y_pos,
             text="No events today",
-            font_size=16,
-            color="#999999",
-        )
-
-    def _render_truncation_indicator(
-            self,
-            display,
-            remaining: int,
-            x_pos: int,
-            y_pos: int
-    ) -> None:
-        """Render indicator showing how many events are hidden."""
-        display.draw_text(
-            x_pos=x_pos,
-            y_pos=y_pos,
-            text=f"+{remaining} more event{'s' if remaining > 1 else ''}",
             font_size=14,
             color="#999999",
         )
-
-    # ========== Three-Day Compact View Rendering Methods ==========
-
-    def _render_day_header_compact(
-            self,
-            display,
-            date: datetime,
-            label: Optional[str],
-            x_pos: int,
-            y_pos: int,
-            day_index: int
-    ) -> int:
-        """Render compact day header with grayscale hierarchy."""
-        colors = ["#000000", "#555555", "#888888"]
-        color = colors[day_index]
-
-        if label:
-            header = f"{label} - {date.strftime('%a %b %d').upper()}"
-        else:
-            header = date.strftime("%a %b %d").upper()
-
-        display.draw_text(
-            x_pos=x_pos,
-            y_pos=y_pos,
-            text=header,
-            font_size=16,
-            color=color,
-        )
-
-        return y_pos + 22
-
-    def _render_event_compact(
-            self,
-            display,
-            event: dict,
-            x_pos: int,
-            y_pos: int
-    ) -> int:
-        """Render single event in compact format."""
-        time_str = self._format_time(event["time"])
-        event_line = f"{time_str}  {event['summary']}"  # Removed the bullet point
-
-        display.draw_text(
-            x_pos=x_pos,
-            y_pos=y_pos,
-            text=event_line,
-            font_size=14,
-            color="#000000",
-        )
-
-        return y_pos + 20
-
-    def _render_no_events_compact(
-            self,
-            display,
-            x_pos: int,
-            y_pos: int
-    ) -> int:
-        """Render 'no events' message in compact format."""
-        display.draw_text(
-            x_pos=x_pos,
-            y_pos=y_pos,
-            text="No events",  # Removed the bullet point
-            font_size=14,
-            color="#AAAAAA",
-        )
-        return y_pos + 20
-
-    def _render_truncation_compact(
-            self,
-            display,
-            remaining: int,
-            x_pos: int,
-            y_pos: int
-    ) -> int:
-        """Render truncation indicator in compact format."""
-        display.draw_text(
-            x_pos=x_pos,
-            y_pos=y_pos,
-            text=f"  +{remaining} more",
-            font_size=12,
-            color="#999999",
-        )
-        return y_pos + 18
 
     # ========== Utility Methods ==========
 
+    def _group_events_by_date(self, events: List[dict]) -> Dict[date, List[dict]]:
+        """Group events by their date and sort by time."""
+        events_by_date = {}
+        today = datetime.now().date()
+
+        for event in events:
+            # If event doesn't have a date field, assume it's for today
+            if "date" in event:
+                event_date = (
+                    event["date"].date()
+                    if hasattr(event["date"], "date")
+                    else event["date"]
+                )
+            else:
+                event_date = today
+
+            if event_date not in events_by_date:
+                events_by_date[event_date] = []
+            events_by_date[event_date].append(event)
+
+        # Sort events within each day by time
+        for date_key in events_by_date:
+            events_by_date[date_key] = self._sort_events_by_time(
+                events_by_date[date_key]
+            )
+
+        return events_by_date
+
+    def _sort_events_by_time(self, events: List[dict]) -> List[dict]:
+        """Sort events by their time, handling various time formats."""
+
+        def time_sort_key(event):
+            time_str = event.get("time", "")
+
+            # Handle empty time (all-day events) - put them first
+            if not time_str or time_str == "All Day":
+                return (0, 0)  # Midnight (sorts first)
+
+            try:
+                # Remove AM/PM and spaces
+                time_clean = time_str.replace("AM", "").replace("PM", "").strip()
+
+                # Parse hour and minute
+                if ":" in time_clean:
+                    parts = time_clean.split(":")
+                    hour = int(parts[0])
+                    minute = int(parts[1]) if len(parts) > 1 else 0
+                else:
+                    hour = int(time_clean)
+                    minute = 0
+
+                # Convert to 24-hour format
+                if "PM" in time_str and hour != 12:
+                    hour += 12
+                elif "AM" in time_str and hour == 12:
+                    hour = 0
+
+                return (hour, minute)
+            except (ValueError, AttributeError, IndexError):
+                # If parsing fails, put at end
+                return (99, 99)
+
+        return sorted(events, key=time_sort_key)
+
+    def _format_day_header(self, date_obj: date, day_offset: int) -> str:
+        """Format day header with day label and date."""
+        day_names = [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        ]
+        day_name = day_names[date_obj.weekday()]
+
+        if day_offset == 0:
+            day_label = "● TODAY"
+        elif day_offset == 1:
+            day_label = "○ TOMORROW"
+        else:
+            day_label = f"  {day_name.upper()}"
+
+        return f"{day_label} - {date_obj.strftime('%b %d').upper()}"
+
     def _format_time(self, time_str: str) -> str:
-        """Format time string to 12-hour format."""
+        """Format time string to compact 12-hour format."""
+        if not time_str:
+            return "All Day"
+
         if "AM" in time_str or "PM" in time_str:
-            return time_str
+            # Remove spaces for compactness: "5:30 PM" -> "5:30PM"
+            return time_str.replace(" ", "")
 
         try:
             hour, minute = map(int, time_str.split(":"))
@@ -708,6 +610,6 @@ class CalendarWidget(WidgetInterface):
             elif hour > 12:
                 hour = hour - 12
 
-            return f"{hour}:{minute:02d} {period}"
+            return f"{hour}:{minute:02d}{period}"
         except (ValueError, AttributeError):
             return time_str

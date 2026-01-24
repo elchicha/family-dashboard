@@ -17,7 +17,7 @@ app = Flask(__name__)
 def load_config():
     """Load configuration from config.yaml"""
     try:
-        with open('config.yaml', 'r') as f:
+        with open("config.yaml", "r") as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
         print("ERROR: config.yaml not found!")
@@ -42,12 +42,12 @@ class MergedCalendarService:
                 print(f"Warning: Failed to fetch from a calendar service: {e}")
 
         # Sort by date and time
-        return sorted(all_events, key=lambda e: (e['date'], e['time']))
+        return sorted(all_events, key=lambda e: (e["date"], e["time"]))
 
     def clear_cache(self):
         """Clear cache for all services."""
         for service in self.services:
-            if hasattr(service, 'clear_cache'):
+            if hasattr(service, "clear_cache"):
                 service.clear_cache()
 
 
@@ -56,15 +56,17 @@ config = load_config()
 
 # Initialize calendar services from config
 calendar_services = []
-for cal_config in config['calendars']['sources']:
-    if cal_config.get('enabled', True):
+for cal_config in config["calendars"]["sources"]:
+    if cal_config.get("enabled", True):
         base_service = CalendarService(
-            url=cal_config['url'],
-            source_name=cal_config.get('short_name', cal_config.get('name', 'Unknown'))  # Pass the name
+            url=cal_config["url"],
+            source_name=cal_config.get(
+                "short_name", cal_config.get("name", "Unknown")
+            ),  # Pass the name
         )
         cached_service = CachedCalendarService(
             service=base_service,
-            cache_duration_minutes=config['calendars']['cache_duration_minutes']
+            cache_duration_minutes=config["calendars"]["cache_duration_minutes"],
         )
         calendar_services.append(cached_service)
         print(f"✓ Loaded calendar: {cal_config['name']}")
@@ -76,16 +78,15 @@ calendar_service = MergedCalendarService(calendar_services)
 @app.route("/render/<display_id>")
 def render_display(display_id: str):
     display = PNGDisplay(
-        width=config['display']['width'],
-        height=config['display']['height']
+        width=config["display"]["width"], height=config["display"]["height"]
     )
     display.clear()
 
     layout = TwoColumnLayout(
-        width=config['display']['width'],
-        height=config['display']['height'],
-        left_ratio=0.6,
-        widget_spacing=15
+        width=config["display"]["width"],
+        height=config["display"]["height"],
+        left_ratio=0.75,
+        widget_spacing=15,
     )
 
     if display_id == "kitchen":
@@ -93,10 +94,9 @@ def render_display(display_id: str):
         layout.add_widget(date_widget, column="right")
 
         calendar_widget = CalendarWidget(
-            calendar_service,
-            view_mode=config['calendars']['view_mode']
+            calendar_service, view_mode=config["calendars"]["view_mode"]
         )
-        layout.add_widget(calendar_widget, column='left')
+        layout.add_widget(calendar_widget, column="left")
 
     layout.render(display)
     png_bytes = display.get_image_bytes()
@@ -112,7 +112,11 @@ def render_display(display_id: str):
 @app.route("/")
 def index():
     """Simple index page with available displays"""
-    calendar_names = [cal['name'] for cal in config['calendars']['sources'] if cal.get('enabled', True)]
+    calendar_names = [
+        cal["name"]
+        for cal in config["calendars"]["sources"]
+        if cal.get("enabled", True)
+    ]
     calendars_list = "<br>".join([f"   - {name}" for name in calendar_names])
 
     return f"""
@@ -187,7 +191,7 @@ def debug_calendar():
 
     for event in events:
         html += f"<li>{event['date'].strftime('%Y-%m-%d')} {event['time']} - <strong>{event['summary']}</strong>"
-        if event.get('location'):
+        if event.get("location"):
             html += f" @ {event['location']}"
         html += "</li>"
 
@@ -212,8 +216,8 @@ if __name__ == "__main__":
     print("🚀 Starting Family Dashboard Server...")
     print("📍 Server running at http://localhost:5000")
     print(f"📅 Loaded {len(calendar_services)} calendar(s):")
-    for cal_config in config['calendars']['sources']:
-        if cal_config.get('enabled', True):
+    for cal_config in config["calendars"]["sources"]:
+        if cal_config.get("enabled", True):
             print(f"   - {cal_config['name']}")
     print(f"   (Cached for {config['calendars']['cache_duration_minutes']} minutes)")
     print("🔍 Debug calendar at http://localhost:5000/debug/calendar")
