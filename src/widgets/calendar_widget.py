@@ -1,12 +1,9 @@
 """Adaptive calendar widget that intelligently fits all events without truncation."""
 
 from datetime import datetime, timedelta, date
-from typing import Optional, List, Dict, Tuple
-
-from PIL import Image, ImageDraw, ImageFont
+from typing import List, Dict, Tuple
 
 from src.display.display_interface import DisplayInterface
-from src.services.event_categorizer import EventCategory, EventCategorizer
 from src.widgets.widget_interface import WidgetInterface
 
 
@@ -36,7 +33,7 @@ class CalendarWidget(WidgetInterface):
     def __init__(
         self,
         calendar_service,
-        view_mode: str = "adaptive",  # "adaptive", "three_day", "two_day", "single_day"
+        view_mode: str = "adaptive",  # "adaptive", "five_day", "three_day", "two_day", "single_day"
         show_locations: bool = False,  # Locations disabled by default for space
         available_height: int = 350,  # Default height for single-day compatibility
         events_per_day: int = 3,  # For multi-day views
@@ -67,6 +64,8 @@ class CalendarWidget(WidgetInterface):
         """Render the calendar widget with adaptive layout."""
         if self.view_mode == "adaptive":
             self._render_adaptive(display, x_offset, y_offset)
+        elif self.view_mode == "five_day":
+            self._render_multi_day_view(display, x_offset, y_offset, num_days=5)
         elif self.view_mode == "two_day":
             self._render_multi_day_view(display, x_offset, y_offset, num_days=2)
         elif self.view_mode == "three_day":
@@ -82,34 +81,37 @@ class CalendarWidget(WidgetInterface):
         """Intelligently choose the best layout to fit all events."""
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # Fetch events for next 3 days
+        # Fetch events for next 5 days
         events = self.calendar_service.get_events(
-            start_date=today.date(), end_date=(today + timedelta(days=2)).date()
+            start_date=today.date(), end_date=(today + timedelta(days=4)).date()
         )
 
         # Group events by date
         events_by_date = self._group_events_by_date(events)
+        today_events = len(events_by_date.get(today.date(), []))
 
-        # Count events per day
-        today_count = len(events_by_date.get(today.date(), []))
-        tomorrow_count = len(events_by_date.get((today + timedelta(days=1)).date(), []))
-        day_after_count = len(
-            events_by_date.get((today + timedelta(days=2)).date(), [])
+        # Count total events across 5 days
+        total_events = sum(
+            len(events_by_date.get((today + timedelta(days=i)).date(), []))
+            for i in range(5)
         )
-        total_events = today_count + tomorrow_count + day_after_count
-
-        # Decision logic
-        if total_events == 0:
-            # Show 3 days if no events
+        # Smart decision: prioritize today's density
+        # If today is very busy (15+ events), use filtered single-day view
+        if today_events >= 15:
+            self._render_single_day_filtered(
+                display, x_offset, y_offset, events_by_date.get(today.date(), [])
+            )
+        # Adaptive decision logic - favor showing more days
+        elif total_events == 0:  # Sparse events - show full week
+            self._render_multi_day_view(display, x_offset, y_offset, num_days=5)
+        elif total_events <= 30:  # Up to 6 events per day
+            self._render_multi_day_view(display, x_offset, y_offset, num_days=5)
+        elif total_events <= 40:  # ~13 events per day show 3 days
             self._render_multi_day_view(display, x_offset, y_offset, num_days=3)
-        elif total_events <= 9:  # ~3 events per day
-            # Three-day view fits comfortably
-            self._render_multi_day_view(display, x_offset, y_offset, num_days=3)
-        elif total_events <= 15:  # ~7-8 events per day
-            # Two-day view with more space per event
+        elif total_events <= 50:
             self._render_multi_day_view(display, x_offset, y_offset, num_days=2)
         else:
-            # Many events today - focus on current day with time filtering
+            # Dense schedule - focus on today with filtering
             self._render_single_day_filtered(
                 display, x_offset, y_offset, events_by_date.get(today.date(), [])
             )
@@ -155,50 +157,63 @@ class CalendarWidget(WidgetInterface):
             line_height = 16
             spacing_between_days = 8
 
-        x_pos = self.padding + x_offset
-        y_pos = self.padding + y_offset
+        # PRE-CALCULATE total height needed for all days
+        total_height_needed = self.padding  # Start with top padding
 
-        # Render each day
         for day_offset in range(num_days):
             current_date = (today + timedelta(days=day_offset)).date()
             day_events = events_by_date.get(current_date, [])
+            all_day_events, timed_events = self._separate_all_day_events(day_events)
 
-            # Check if we have space for this day
-            estimated_day_height = (
-                26
-                + (len(day_events) * line_height if day_events else line_height)
-                + spacing_between_days
-            )
-            if y_pos + estimated_day_height > self.available_height + y_offset - 20:
-                # Not enough space for this day, stop here
-                break
+            day_height = 26 + 8  # Header + padding
 
-            # Render day header (white-on-black)
+            if all_day_events:
+                day_height += 40
+
+            if timed_events:
+                day_height += len(timed_events) * line_height
+            elif not all_day_events:
+                day_height += line_height
+
+            day_height += spacing_between_days
+            total_height_needed += day_height
+
+        # If total height exceeds available space, reduce font sizes
+        if total_height_needed > self.available_height:
+            # Too tight - reduce everything slightly
+            font_size_event = max(10, font_size_event - 1)
+            font_size_header = max(11, font_size_header - 1)
+            line_height = max(14, line_height - 2)
+            spacing_between_days = max(4, spacing_between_days - 2)
+
+        x_pos = self.padding + x_offset
+        y_pos = self.padding + y_offset
+
+        # NOW render each day with the adjusted sizing
+        for day_offset in range(num_days):
+            current_date = (today + timedelta(days=day_offset)).date()
+            day_events = events_by_date.get(current_date, [])
+            all_day_events, timed_events = self._separate_all_day_events(day_events)
+
+            # Render day header
             y_pos = self._render_day_header_inverted(
                 display, current_date, day_offset, x_pos, y_pos, font_size_header
             )
             y_pos += 8
 
-            # Render events for this day
-            if day_events:
-                for event in day_events:
-                    # Stop if we run out of space
-                    if y_pos + line_height > self.available_height + y_offset - 20:
-                        # Show remaining count
-                        remaining = len(day_events) - day_events.index(event)
-                        display.draw_text(
-                            x_pos=x_pos + 10,
-                            y_pos=y_pos,
-                            text=f"+{remaining} more",
-                            font_size=font_size_event - 2,
-                            color="#999999",
-                        )
-                        break
+            # Render all-day events group
+            if all_day_events:
+                y_pos = self._render_all_day_group(
+                    display, all_day_events, x_pos + 10, y_pos, font_size_event
+                )
 
+            # Render timed events
+            if timed_events:
+                for event in timed_events:
                     y_pos = self._render_event_compact(
                         display, event, x_pos + 10, y_pos, font_size_event
                     )
-            else:
+            elif not all_day_events:
                 display.draw_text(
                     x_pos=x_pos + 10,
                     y_pos=y_pos,
@@ -209,9 +224,9 @@ class CalendarWidget(WidgetInterface):
                 y_pos += line_height
 
             # Add spacing between days
-            y_pos += spacing_between_days
-
-    # ========== Single-Day Filtered View ==========
+            y_pos += (
+                spacing_between_days  # ========== Single-Day Filtered View ==========
+            )
 
     def _render_single_day_filtered(
         self,
@@ -348,7 +363,7 @@ class CalendarWidget(WidgetInterface):
             self._render_no_events(display, x_pos, y_pos)
             return
 
-        # Calculate adaptive sizing based on event count
+        # Calculate adaptive sizing based on event count BEFORE using it
         event_count = len(events)
         available_space = self.available_height + y_offset - y_pos - 20
 
@@ -362,12 +377,24 @@ class CalendarWidget(WidgetInterface):
             font_size = 12
             line_height = 16
 
-        # Render events with adaptive sizing
+        # Separate all-day from timed events
+        all_day_events, timed_events = self._separate_all_day_events(events)
+
+        # Render all-day events group
+        if all_day_events:
+            y_pos = self._render_all_day_group(
+                display, all_day_events, x_pos, y_pos, font_size
+            )
+
+        # Calculate remaining space
+        available_space = self.available_height + y_offset - y_pos - 20
+
+        # Render timed events with adaptive sizing
         rendered_count = 0
-        for event in events:
+        for event in timed_events:
             if y_pos + line_height > self.available_height + y_offset - 20:
                 # Out of space - show remaining count
-                remaining = len(events) - rendered_count
+                remaining = len(timed_events) - rendered_count
                 if remaining > 0:
                     display.draw_text(
                         x_pos=x_pos,
@@ -616,3 +643,83 @@ class CalendarWidget(WidgetInterface):
             return f"{hour}:{minute:02d}{period}"
         except (ValueError, AttributeError):
             return time_str
+
+    def _separate_all_day_events(
+        self, events: List[dict]
+    ) -> Tuple[List[dict], List[dict]]:
+        """Separate all-day events from timed events."""
+        all_day_events = []
+        timed_events = []
+
+        for event in events:
+            time_str = event.get("time", "")
+            if time_str == "All Day" or not time_str:
+                all_day_events.append(event)
+            else:
+                timed_events.append(event)
+
+        return all_day_events, timed_events
+
+    def _render_all_day_group(
+        self,
+        display,
+        all_day_events: List[dict],
+        x_pos: int,
+        y_pos: int,
+        font_size: int = 13,
+    ) -> int:
+        """Render grouped all-day events with grey background, grouped by source."""
+        if not all_day_events:
+            return y_pos
+
+        # Group events by source/calendar
+        events_by_source = {}
+        for event in all_day_events:
+            source = event.get("source", "Other")
+            if source not in events_by_source:
+                events_by_source[source] = []
+            events_by_source[source].append(event.get("summary", "").strip())
+
+        # Build the display text - each source gets bracketed once
+        grouped_parts = []
+        for source, summaries in sorted(events_by_source.items()):
+            combined_summaries = " • ".join(summaries)
+            grouped_parts.append(f"[{source}] {combined_summaries}")
+
+        combined_text = " • ".join(grouped_parts)
+
+        # Truncate if too long
+        max_chars = 68 if font_size >= 13 else 78
+        if len(combined_text) > max_chars:
+            combined_text = combined_text[: max_chars - 3] + "..."
+
+        # Calculate group height
+        group_padding = 6
+        line_height = font_size + 4
+
+        # Estimate lines (might wrap)
+        estimated_lines = 1 if len(combined_text) <= max_chars else 2
+        text_height = line_height * estimated_lines
+        group_height = text_height + (2 * group_padding)
+
+        # Draw grey background
+        bg_width = self.width - 2 * self.padding - 10
+        display.draw_rectangle(
+            x_pos=x_pos - 5,
+            y_pos=y_pos - 2,
+            width=bg_width,
+            height=group_height,
+            fill="#F5F5F5",  # Light grey
+            outline="#E0E0E0",  # Slightly darker border
+        )
+
+        # Draw the combined text
+        display.draw_text(
+            x_pos=x_pos,
+            y_pos=y_pos + group_padding - 2,
+            text=combined_text,
+            font_size=font_size,
+            color="#666666",  # Darker grey for text
+        )
+
+        return y_pos + group_height + 4  # Add small spacing after group

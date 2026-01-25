@@ -533,3 +533,199 @@ class TestCalendarWidgetWidth:
             assert x_pos >= widget.padding
             # And shouldn't exceed width (roughly)
             assert x_pos < widget.width
+
+
+class TestCalendarWidgetFiveDayView:
+    """Test five-day calendar view."""
+
+    def test_five_day_mode_enabled(self):
+        """CalendarWidget should support five_day view mode."""
+        mock_service = Mock()
+        mock_service.get_events.return_value = []
+
+        widget = CalendarWidget(mock_service, view_mode="five_day")
+        mock_display = Mock()
+
+        widget.render(mock_display)
+
+        # Should fetch 5 days of events
+        call_args = mock_service.get_events.call_args
+        start_date = call_args[1]["start_date"]
+        end_date = call_args[1]["end_date"]
+
+        assert (end_date - start_date).days == 4  # 5 days inclusive
+
+    def test_renders_five_date_headers(self):
+        """Five-day view should render 5 day headers."""
+        mock_service = Mock()
+        today = datetime.now().date()
+
+        # Create events for 5 days
+        mock_service.get_events.return_value = [
+            {
+                "summary": f"Event Day {i}",
+                "time": "9:00AM",
+                "date": today + timedelta(days=i),
+            }
+            for i in range(5)
+        ]
+
+        widget = CalendarWidget(
+            mock_service, view_mode="five_day", available_height=480
+        )
+        mock_display = Mock()
+
+        widget.render(mock_display)
+
+        # Count header rectangles (black backgrounds)
+        rectangle_calls = [
+            call
+            for call in mock_display.draw_rectangle.call_args_list
+            if call[1].get("fill") == "#000000"
+        ]
+
+        assert len(rectangle_calls) == 5, "Should render 5 day headers"
+
+    def test_adaptive_mode_uses_five_days_when_sparse(self):
+        """Adaptive mode should use 5 days when events are sparse."""
+        mock_service = Mock()
+        today = datetime.now().date()
+
+        # Very few events across multiple days (3 events total)
+        mock_service.get_events.return_value = [
+            {"summary": "Event 1", "time": "9:00AM", "date": today},
+            {"summary": "Event 2", "time": "2:00PM", "date": today + timedelta(days=2)},
+            {"summary": "Event 3", "time": "3:00PM", "date": today + timedelta(days=4)},
+        ]
+
+        widget = CalendarWidget(
+            mock_service, view_mode="adaptive", available_height=480
+        )
+        mock_display = Mock()
+
+        widget.render(mock_display)
+
+        # Should fetch 5 days when checking event density
+        # (We'll verify this by checking that events from day 4 are included)
+        call_args = mock_service.get_events.call_args
+        end_date = call_args[1]["end_date"]
+        start_date = call_args[1]["start_date"]
+
+        # Should check at least 5 days ahead
+        assert (end_date - start_date).days >= 4
+
+    def test_adaptive_mode_scales_down_with_many_events(self):
+        """Adaptive mode should still use fewer days when there are many events."""
+        mock_service = Mock()
+        today = datetime.now().date()
+
+        # Many events today (20 events)
+        mock_service.get_events.return_value = [
+            {"summary": f"Event {i}", "time": f"{8+i}:00AM", "date": today}
+            for i in range(20)
+        ]
+
+        widget = CalendarWidget(
+            mock_service, view_mode="adaptive", available_height=480
+        )
+        mock_display = Mock()
+
+        widget.render(mock_display)
+
+        # With many events, should use filtered single-day view
+        # Verify by checking that it called the single-day rendering logic
+        # (In practice, this means fewer header rectangles)
+        rectangle_calls = [
+            call
+            for call in mock_display.draw_rectangle.call_args_list
+            if call[1].get("fill") == "#000000"
+        ]
+
+        # Should have 1 header for single-day view
+        # (The grey background for all-day events shouldn't be black)
+        assert (
+            len(rectangle_calls) == 1
+        ), f"Expected 1 black header rectangle, got {len(rectangle_calls)}"
+
+        # Verify it's showing single day by checking the header text
+        text_calls = mock_display.draw_text.call_args_list
+        header_texts = [
+            call[1]["text"] for call in text_calls if "TODAY" in call[1]["text"]
+        ]
+        assert len(header_texts) == 1, "Should have one TODAY header"
+
+
+class TestCalendarWidgetAllDayGrouping:
+    """Test all-day event grouping with visual background."""
+
+    def test_groups_multiple_all_day_events(self):
+        """Multiple all-day events should be grouped together."""
+        mock_service = Mock()
+        today = datetime.now().date()
+
+        mock_service.get_events.return_value = [
+            {"summary": "Event 1", "time": "All Day", "date": today},
+            {"summary": "Event 2", "time": "All Day", "date": today},
+            {"summary": "Event 3", "time": "All Day", "date": today},
+            {"summary": "Timed Event", "time": "9:00AM", "date": today},
+        ]
+
+        widget = CalendarWidget(mock_service, view_mode="single_day")
+        mock_display = Mock()
+
+        widget.render(mock_display)
+
+        # Should draw a rectangle background for all-day section
+        rectangle_calls = [
+            call
+            for call in mock_display.draw_rectangle.call_args_list
+            if call[1].get("fill") == "#F5F5F5"  # Light grey background
+        ]
+
+        assert len(rectangle_calls) >= 1, "Should draw background for all-day group"
+
+    def test_all_day_events_shown_on_single_line(self):
+        """All-day events should be combined on one line."""
+        mock_service = Mock()
+        today = datetime.now().date()
+
+        mock_service.get_events.return_value = [
+            {"summary": "SCEF Read-a-thon", "time": "All Day", "date": today},
+            {"summary": "Book Fair", "time": "All Day", "date": today},
+            {"summary": "Catholic Schools Week", "time": "All Day", "date": today},
+        ]
+
+        widget = CalendarWidget(mock_service, view_mode="single_day")
+        mock_display = Mock()
+
+        widget.render(mock_display)
+
+        # Find the combined all-day text
+        text_calls = [call for call in mock_display.draw_text.call_args_list]
+        all_day_texts = [
+            call[1]["text"] for call in text_calls if "All Day" in call[1]["text"]
+        ]
+
+        # Should combine into one or two lines (if long)
+        assert len(all_day_texts) <= 2, "All-day events should be on 1-2 lines max"
+
+    def test_separates_all_day_from_timed_events(self):
+        """All-day section should visually separate from timed events."""
+        mock_service = Mock()
+        today = datetime.now().date()
+
+        mock_service.get_events.return_value = [
+            {"summary": "All Day Event", "time": "All Day", "date": today},
+            {"summary": "Morning Event", "time": "9:00AM", "date": today},
+        ]
+
+        widget = CalendarWidget(mock_service, view_mode="single_day")
+        mock_display = Mock()
+
+        widget.render(mock_display)
+
+        text_calls = [call for call in mock_display.draw_text.call_args_list]
+
+        # Should have "All Day:" label and timed events below
+        assert any("All Day" in call[1]["text"] for call in text_calls)
+        assert any("9:00AM" in call[1]["text"] for call in text_calls)
