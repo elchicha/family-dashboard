@@ -123,15 +123,19 @@ def render_display(display_id: str):
         height=config["display"]["height"],
         left_ratio=0.7,
         widget_spacing=10,
-        debug=True,
+        # debug=True,
     )
 
     if display_id == "kitchen":
         date_widget = DateWidget()
         layout.add_widget(date_widget, column="right")
 
+        available_calendar_height = config["display"]["height"] - 20
+
         calendar_widget = CalendarWidget(
-            calendar_service, view_mode=config["calendars"]["view_mode"]
+            calendar_service,
+            view_mode=config["calendars"]["view_mode"],
+            available_height=available_calendar_height,
         )
         layout.add_widget(calendar_widget, column="left")
 
@@ -214,7 +218,7 @@ def index():
 def debug_calendar():
     """Debug endpoint to view raw calendar events"""
     today = date.today()
-    end_date = today + timedelta(days=2)
+    end_date = today + timedelta(days=4)
 
     events = calendar_service.get_events(
         start_date=today,
