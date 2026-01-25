@@ -20,9 +20,7 @@ def load_config():
         with open("config.yaml", "r") as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
-        print("ERROR: config.yaml not found!")
-        print("Please copy config.example.yaml to config.yaml and fill in your details")
-        exit(1)
+        return None
 
 
 class MergedCalendarService:
@@ -51,28 +49,66 @@ class MergedCalendarService:
                 service.clear_cache()
 
 
-# Load configuration
-config = load_config()
-
-# Initialize calendar services from config
+config = None
 calendar_services = []
-for cal_config in config["calendars"]["sources"]:
-    if cal_config.get("enabled", True):
-        base_service = CalendarService(
-            url=cal_config["url"],
-            source_name=cal_config.get(
-                "short_name", cal_config.get("name", "Unknown")
-            ),  # Pass the name
-        )
-        cached_service = CachedCalendarService(
-            service=base_service,
-            cache_duration_minutes=config["calendars"]["cache_duration_minutes"],
-        )
-        calendar_services.append(cached_service)
-        print(f"✓ Loaded calendar: {cal_config['name']}")
+calendar_service = None
 
-# Create merged calendar service
-calendar_service = MergedCalendarService(calendar_services)
+
+def initialize_services():
+    """Initialize services (called on first request or explicitly)."""
+    global config, calendar_services, calendar_service
+
+    if config is not None:
+        return  # Already initialized
+
+    config = load_config()
+
+    if config is None:
+        # Only exit if running as main app (not during tests)
+        if __name__ == "__main__":
+            print("ERROR: config.yaml not found!")
+            print(
+                "Please copy config.example.yaml to config.yaml and fill in your details"
+            )
+            exit(1)
+        else:
+            # During tests, use empty config
+            print("Warning: config.yaml not found, using empty config for testing")
+            config = {
+                "display": {"width": 800, "height": 480},
+                "calendars": {
+                    "view_mode": "adaptive",
+                    "cache_duration_minutes": 30,
+                    "sources": [],
+                },
+            }
+            calendar_service = MergedCalendarService([])
+            return
+
+    # Initialize calendar services from config
+    for cal_config in config["calendars"]["sources"]:
+        if cal_config.get("enabled", True):
+            base_service = CalendarService(
+                url=cal_config["url"],
+                source_name=cal_config.get(
+                    "short_name", cal_config.get("name", "Unknown")
+                ),
+            )
+            cached_service = CachedCalendarService(
+                service=base_service,
+                cache_duration_minutes=config["calendars"]["cache_duration_minutes"],
+            )
+            calendar_services.append(cached_service)
+            print(f"✓ Loaded calendar: {cal_config['name']}")
+
+    # Create merged calendar service
+    calendar_service = MergedCalendarService(calendar_services)
+
+
+@app.before_request
+def before_first_request():
+    """Initialize services before first request."""
+    initialize_services()
 
 
 @app.route("/render/<display_id>")
@@ -214,6 +250,11 @@ def clear_cache():
 
 
 if __name__ == "__main__":
+    initialize_services()
+
+    if config is None:
+        exit(1)
+
     print("🚀 Starting Family Dashboard Server...")
     print("📍 Server running at http://localhost:5000")
     print(f"📅 Loaded {len(calendar_services)} calendar(s):")
@@ -226,4 +267,4 @@ if __name__ == "__main__":
     print("🔄 Press Ctrl+C to stop")
     app.run(debug=True, host="0.0.0.0", port=5000)
 else:
-    print("✅ Flask app loaded successfully")
+    print("✅ Flask app loaded successfully (test mode)")
