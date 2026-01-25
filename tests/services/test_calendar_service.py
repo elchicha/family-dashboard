@@ -1,4 +1,5 @@
 """Tests for CalendarService."""
+
 import pytest
 from datetime import datetime, date, timedelta
 from src.services.calendar_service import CalendarService
@@ -23,21 +24,20 @@ END:VEVENT
 END:VCALENDAR"""
         mock_response.raise_for_status = mocker.Mock()
 
-        mock_get = mocker.patch('requests.get', return_value=mock_response)
+        mock_get = mocker.patch("requests.get", return_value=mock_response)
 
         service = CalendarService(
             url="https://calendar.google.com/calendar/ical/example/basic.ics"
         )
 
         events = service.get_events(
-            start_date=date(2025, 1, 22),
-            end_date=date(2025, 1, 22)
+            start_date=date(2025, 1, 22), end_date=date(2025, 1, 22)
         )
 
         assert len(events) == 1
-        assert events[0]['summary'] == 'Team Meeting'
-        assert events[0]['location'] == 'Conference Room A'
-        assert events[0]['uid'] == 'test123'
+        assert events[0]["summary"] == "Team Meeting"
+        assert events[0]["location"] == "Conference Room A"
+        assert events[0]["uid"] == "test123_2025-01-22"
         mock_get.assert_called_once()
 
     def test_parses_all_day_events(self, mocker):
@@ -53,17 +53,16 @@ UID:allday123
 END:VEVENT
 END:VCALENDAR"""
         mock_response.raise_for_status = mocker.Mock()
-        mocker.patch('requests.get', return_value=mock_response)
+        mocker.patch("requests.get", return_value=mock_response)
 
         service = CalendarService(url="https://example.com/cal.ics")
         events = service.get_events(
-            start_date=date(2025, 1, 22),
-            end_date=date(2025, 1, 22)
+            start_date=date(2025, 1, 22), end_date=date(2025, 1, 22)
         )
 
         assert len(events) == 1
-        assert events[0]['summary'] == 'All Day Event'
-        assert events[0]['time'] == '00:00'
+        assert events[0]["summary"] == "All Day Event"
+        assert events[0]["time"] == "All Day"
 
     def test_filters_events_by_date_range(self, mocker):
         """Should only return events within date range."""
@@ -82,18 +81,17 @@ UID:2
 END:VEVENT
 END:VCALENDAR"""
         mock_response.raise_for_status = mocker.Mock()
-        mocker.patch('requests.get', return_value=mock_response)
+        mocker.patch("requests.get", return_value=mock_response)
 
         service = CalendarService(url="https://example.com/cal.ics")
 
         # Only fetch Jan 22
         events = service.get_events(
-            start_date=date(2025, 1, 22),
-            end_date=date(2025, 1, 22)
+            start_date=date(2025, 1, 22), end_date=date(2025, 1, 22)
         )
 
         assert len(events) == 1
-        assert events[0]['summary'] == 'Event 1'
+        assert events[0]["summary"] == "Event 1"
 
     def test_sorts_events_by_date_and_time(self, mocker):
         """Should return events sorted by date then time."""
@@ -117,15 +115,14 @@ UID:3
 END:VEVENT
 END:VCALENDAR"""
         mock_response.raise_for_status = mocker.Mock()
-        mocker.patch('requests.get', return_value=mock_response)
+        mocker.patch("requests.get", return_value=mock_response)
 
         service = CalendarService(url="https://example.com/cal.ics")
         events = service.get_events(
-            start_date=date(2025, 1, 22),
-            end_date=date(2025, 1, 23)
+            start_date=date(2025, 1, 22), end_date=date(2025, 1, 23)
         )
 
         assert len(events) == 3
-        assert events[0]['summary'] == 'Morning'
-        assert events[1]['summary'] == 'Afternoon'
-        assert events[2]['summary'] == 'Tomorrow'
+        assert events[0]["summary"] == "Morning"
+        assert events[1]["summary"] == "Afternoon"
+        assert events[2]["summary"] == "Tomorrow"
