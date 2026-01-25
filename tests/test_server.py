@@ -1,11 +1,15 @@
 import pytest
-from src.server.app import app
+from src.server.app import app, initialize_services
 
 
 @pytest.fixture
 def client():
-    """Create Flask test client"""
+    """Create test client"""
     app.config["TESTING"] = True
+
+    # Initialize with test config (will use empty config if config.yaml missing)
+    initialize_services()
+
     with app.test_client() as client:
         yield client
 
