@@ -85,8 +85,9 @@ def render_display(display_id: str):
     layout = TwoColumnLayout(
         width=config["display"]["width"],
         height=config["display"]["height"],
-        left_ratio=0.75,
-        widget_spacing=15,
+        left_ratio=0.7,
+        widget_spacing=10,
+        debug=True,
     )
 
     if display_id == "kitchen":
@@ -137,8 +138,8 @@ def index():
                 max-width: 100%; 
                 border: 2px solid #333;
                 margin-top: 10px;
-                width: 1600px; 
-                image-rendering: pixelated; 
+                width: 800px;
+                height: 480px;
             }}
             .admin-links {{
                 margin-top: 30px;
