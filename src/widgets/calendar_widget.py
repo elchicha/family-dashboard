@@ -33,10 +33,12 @@ class CalendarWidget(WidgetInterface):
     def __init__(
         self,
         calendar_service,
-        view_mode: str = "adaptive",  # "adaptive", "five_day", "three_day", "two_day", "single_day"
-        show_locations: bool = False,  # Locations disabled by default for space
-        available_height: int = 350,  # Default height for single-day compatibility
-        events_per_day: int = 3,  # For multi-day views
+        view_mode: str = "adaptive",
+        show_locations: bool = False,
+        available_height: int = 350,
+        events_per_day: int = 3,
+        start_offset_days: int = 0,  # NEW: Start from today+N days
+        show_header: bool = True,  # NEW: Option to hide header
     ):
         """
         Initialize calendar widget.
@@ -47,6 +49,8 @@ class CalendarWidget(WidgetInterface):
             show_locations: Whether to show locations (consumes more space)
             available_height: Available vertical space in pixels
             events_per_day: Max events per day in multi-day views
+            start_offset_days: Start from today + N days (0=today, 1=tomorrow)
+            show_header: Whether to show the date header
         """
         self.calendar_service = calendar_service
         self.view_mode = view_mode
@@ -54,8 +58,10 @@ class CalendarWidget(WidgetInterface):
         self.padding = 20
         self.width = 480
         self.available_height = available_height
-        self.height = available_height  # Required by layout manager
+        self.height = available_height
         self.events_per_day = events_per_day
+        self.start_offset_days = start_offset_days
+        self.show_header = show_header
 
     def set_width(self, width: int) -> None:
         self.width = width
@@ -80,26 +86,28 @@ class CalendarWidget(WidgetInterface):
     ):
         """Intelligently choose the best layout to fit all events."""
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        start_date = today + timedelta(days=self.start_offset_days)
 
-        # Fetch events for next 5 days
+        # Fetch events for next 5 days from start_date
         events = self.calendar_service.get_events(
-            start_date=today.date(), end_date=(today + timedelta(days=4)).date()
+            start_date=start_date.date(),
+            end_date=(start_date + timedelta(days=4)).date(),
         )
 
         # Group events by date
         events_by_date = self._group_events_by_date(events)
-        today_events = len(events_by_date.get(today.date(), []))
+        first_day_events = len(events_by_date.get(start_date.date(), []))
 
         # Count total events across 5 days
         total_events = sum(
-            len(events_by_date.get((today + timedelta(days=i)).date(), []))
+            len(events_by_date.get((start_date + timedelta(days=i)).date(), []))
             for i in range(5)
         )
-        # Smart decision: prioritize today's density
-        # If today is very busy (15+ events), use filtered single-day view
-        if today_events >= 15:
+        # Smart decision: prioritize first day's density
+        # If first day is very busy (15+ events), use filtered single-day view
+        if first_day_events >= 15:
             self._render_single_day_filtered(
-                display, x_offset, y_offset, events_by_date.get(today.date(), [])
+                display, x_offset, y_offset, events_by_date.get(start_date.date(), [])
             )
         # Adaptive decision logic - favor showing more days
         elif total_events == 0:  # Sparse events - show full week
@@ -111,9 +119,9 @@ class CalendarWidget(WidgetInterface):
         elif total_events <= 50:
             self._render_multi_day_view(display, x_offset, y_offset, num_days=2)
         else:
-            # Dense schedule - focus on today with filtering
+            # Dense schedule - focus on first day with filtering
             self._render_single_day_filtered(
-                display, x_offset, y_offset, events_by_date.get(today.date(), [])
+                display, x_offset, y_offset, events_by_date.get(start_date.date(), [])
             )
 
     # ========== Multi-Day View (2 or 3 days) ==========
@@ -127,11 +135,12 @@ class CalendarWidget(WidgetInterface):
     ):
         """Render multiple consecutive days with adaptive sizing."""
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        start_date = today + timedelta(days=self.start_offset_days)
 
         # Fetch events
         events = self.calendar_service.get_events(
-            start_date=today.date(),
-            end_date=(today + timedelta(days=num_days - 1)).date(),
+            start_date=start_date.date(),
+            end_date=(start_date + timedelta(days=num_days - 1)).date(),
         )
 
         # Group events by date
@@ -145,24 +154,31 @@ class CalendarWidget(WidgetInterface):
             font_size_event = 14
             font_size_header = 15
             line_height = 20
-            spacing_between_days = 12
+            spacing_between_days = 16
         elif total_events <= 12:
             font_size_event = 13
             font_size_header = 14
             line_height = 18
-            spacing_between_days = 10
+            spacing_between_days = 14
         else:
             font_size_event = 12
             font_size_header = 13
             line_height = 16
-            spacing_between_days = 8
+            spacing_between_days = 12
 
-        # PRE-CALCULATE total height needed for all days
+        # PRE-CALCULATE total height needed for all days WITH EVENTS
         total_height_needed = self.padding  # Start with top padding
+        days_with_events = 0
 
         for day_offset in range(num_days):
-            current_date = (today + timedelta(days=day_offset)).date()
+            current_date = (start_date + timedelta(days=day_offset)).date()
             day_events = events_by_date.get(current_date, [])
+
+            # Skip empty days in height calculation
+            if not day_events:
+                continue
+
+            days_with_events += 1
             all_day_events, timed_events = self._separate_all_day_events(day_events)
 
             day_height = 26 + 8  # Header + padding
@@ -172,8 +188,6 @@ class CalendarWidget(WidgetInterface):
 
             if timed_events:
                 day_height += len(timed_events) * line_height
-            elif not all_day_events:
-                day_height += line_height
 
             day_height += spacing_between_days
             total_height_needed += day_height
@@ -184,20 +198,32 @@ class CalendarWidget(WidgetInterface):
             font_size_event = max(10, font_size_event - 1)
             font_size_header = max(11, font_size_header - 1)
             line_height = max(14, line_height - 2)
-            spacing_between_days = max(4, spacing_between_days - 2)
+            spacing_between_days = max(8, spacing_between_days - 2)
 
+        # Initialize position variables - THIS WAS MISSING
         x_pos = self.padding + x_offset
         y_pos = self.padding + y_offset
 
-        # NOW render each day with the adjusted sizing
+        # NOW render each day with the adjusted sizing (SKIP EMPTY DAYS)
         for day_offset in range(num_days):
-            current_date = (today + timedelta(days=day_offset)).date()
+            current_date = (start_date + timedelta(days=day_offset)).date()
             day_events = events_by_date.get(current_date, [])
+
+            # Skip days with no events
+            if not day_events:
+                continue
+
             all_day_events, timed_events = self._separate_all_day_events(day_events)
 
-            # Render day header
+            # Render day header - adjust day_offset for proper TODAY/TOMORROW labels
+            display_day_offset = self.start_offset_days + day_offset
             y_pos = self._render_day_header_inverted(
-                display, current_date, day_offset, x_pos, y_pos, font_size_header
+                display,
+                current_date,
+                display_day_offset,
+                x_pos,
+                y_pos,
+                font_size_header,
             )
             y_pos += 8
 
@@ -213,20 +239,9 @@ class CalendarWidget(WidgetInterface):
                     y_pos = self._render_event_compact(
                         display, event, x_pos + 10, y_pos, font_size_event
                     )
-            elif not all_day_events:
-                display.draw_text(
-                    x_pos=x_pos + 10,
-                    y_pos=y_pos,
-                    text="No events",
-                    font_size=font_size_event,
-                    color="#AAAAAA",
-                )
-                y_pos += line_height
 
             # Add spacing between days
-            y_pos += (
-                spacing_between_days  # ========== Single-Day Filtered View ==========
-            )
+            y_pos += spacing_between_days
 
     def _render_single_day_filtered(
         self,
@@ -346,8 +361,11 @@ class CalendarWidget(WidgetInterface):
         self, display: DisplayInterface, x_offset: int = 0, y_offset: int = 0
     ):
         """Render a single day's events with adaptive sizing."""
-        today = datetime.now()
-        events = self.calendar_service.get_events()
+        today = datetime.now() + timedelta(days=self.start_offset_days)  # UPDATED
+        events = self.calendar_service.get_events(
+            start_date=today.date(),
+            end_date=today.date(),  # UPDATED: Fetch specific day
+        )
 
         # Sort events by time
         events = self._sort_events_by_time(events)
@@ -355,9 +373,10 @@ class CalendarWidget(WidgetInterface):
         x_pos = self.padding + x_offset
         y_pos = self.padding + y_offset
 
-        # Render header with white-on-black styling
-        y_pos = self._render_header_inverted(display, today, x_pos, y_pos)
-        y_pos += 15
+        # Render header with white-on-black styling (ONLY IF show_header is True)
+        if self.show_header:  # NEW
+            y_pos = self._render_header_inverted(display, today, x_pos, y_pos)
+            y_pos += 15
 
         if not events:
             self._render_no_events(display, x_pos, y_pos)
@@ -487,26 +506,55 @@ class CalendarWidget(WidgetInterface):
         font_size: int = 13,
         color: str = "#000000",
     ) -> int:
-        """Render single event in compact format, optionally with location."""
+        """Render single event in compact format with improved visual hierarchy."""
         time_str = self._format_time(event.get("time", ""))
-        source_tag = f"[{event.get('source', '')}] " if event.get("source") else ""
-        event_line = f"{time_str} {source_tag}{event['summary']}"
+        source = event.get("source", "")
+        summary = event.get("summary", "")
 
-        # Truncate if too long
-        max_chars = 55 if font_size >= 13 else 60
-        if len(event_line) > max_chars:
-            event_line = event_line[: max_chars - 3] + "..."
+        # Calculate line height
+        line_height = font_size + 4
 
+        # Build the line with proper spacing
+        x_current = x_pos
+
+        # 1. Event summary (BOLD/PRIMARY) - the focus
+        summary_color = color  # Use passed color (allows dimming for past events)
+
+        # Draw event summary
         display.draw_text(
-            x_pos=x_pos,
+            x_pos=x_current,
             y_pos=y_pos,
-            text=event_line,
+            text=summary,
             font_size=font_size,
-            color=color,
+            color=summary_color,
         )
 
-        # Calculate line height based on font size
-        line_height = font_size + 4
+        # 2. Time and Source positioned at ~75% of total width (much closer to title)
+        # Calculate 75% position
+        metadata_x = x_pos + int(
+            (self.width - 2 * self.padding) * 0.70
+        )  # 70% for tighter grouping
+
+        # Draw time (MUTED)
+        display.draw_text(
+            x_pos=metadata_x,
+            y_pos=y_pos,
+            text=time_str,
+            font_size=font_size - 1,  # Smaller
+            color="#888888",  # Muted gray
+        )
+
+        # 3. Source tag (VERY MUTED, right after time)
+        if source:
+            source_x = metadata_x + 60  # Fixed offset after time
+            display.draw_text(
+                x_pos=source_x,
+                y_pos=y_pos,
+                text=f"[{source}]",
+                font_size=font_size - 2,  # Even smaller
+                color="#BBBBBB",  # Very light gray
+            )
+
         y_pos += line_height
 
         # Render location if enabled and present

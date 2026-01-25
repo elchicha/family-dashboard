@@ -123,19 +123,34 @@ def render_display(display_id: str):
         height=config["display"]["height"],
         left_ratio=0.7,
         widget_spacing=10,
-        # debug=True,
+        debug=True,
     )
 
     if display_id == "kitchen":
+        # Right column - Date widget
         date_widget = DateWidget()
         layout.add_widget(date_widget, column="right")
 
+        # Right column - Single-day calendar view (TODAY'S events, NO HEADER)
+        right_calendar_height = config["display"]["height"] - 110 - 30
+
+        right_calendar_widget = CalendarWidget(
+            calendar_service,
+            view_mode="single_day",
+            available_height=right_calendar_height,
+            start_offset_days=0,  # Show today
+            show_header=False,  # Don't show redundant header
+        )
+        layout.add_widget(right_calendar_widget, column="right")
+
+        # Left column - Multi-day calendar view (START FROM TOMORROW)
         available_calendar_height = config["display"]["height"] - 20
 
         calendar_widget = CalendarWidget(
             calendar_service,
             view_mode=config["calendars"]["view_mode"],
             available_height=available_calendar_height,
+            start_offset_days=1,  # Start from tomorrow
         )
         layout.add_widget(calendar_widget, column="left")
 
