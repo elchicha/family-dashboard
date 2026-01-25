@@ -60,6 +60,9 @@ class CalendarWidget(WidgetInterface):
         self.height = available_height  # Required by layout manager
         self.events_per_day = events_per_day
 
+    def set_width(self, width: int) -> None:
+        self.width = width
+
     def render(self, display: DisplayInterface, x_offset: int = 0, y_offset: int = 0):
         """Render the calendar widget with adaptive layout."""
         if self.view_mode == "adaptive":

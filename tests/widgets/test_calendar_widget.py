@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 import pytest
+from unittest.mock import Mock
 from src.widgets.calendar_widget import CalendarWidget
 
 
@@ -449,3 +450,86 @@ class TestCalendarWidgetThreeDayView:
         assert (
             breakfast_idx < lunch_idx < dinner_idx
         ), "Events should be sorted by time within the day"
+
+
+class TestCalendarWidgetWidth:
+    """Test that CalendarWidget properly uses assigned width."""
+
+    def test_calendar_widget_has_width_attribute(self):
+        """CalendarWidget should have a width attribute."""
+        mock_service = Mock()
+        widget = CalendarWidget(mock_service)
+
+        assert hasattr(widget, "width")
+        assert widget.width == 480  # default width
+
+    def test_calendar_widget_has_set_width_method(self):
+        """CalendarWidget should have a set_width method."""
+        mock_service = Mock()
+        widget = CalendarWidget(mock_service)
+
+        assert hasattr(widget, "set_width")
+        assert callable(widget.set_width)
+
+    def test_set_width_updates_width_attribute(self):
+        """Calling set_width should update the widget's width."""
+        mock_service = Mock()
+        widget = CalendarWidget(mock_service)
+
+        new_width = 560
+        widget.set_width(new_width)
+
+        assert widget.width == new_width
+
+    def test_render_uses_full_width_for_headers(self):
+        """Headers should span the full widget width."""
+        mock_service = Mock()
+        mock_service.get_events.return_value = []
+
+        widget = CalendarWidget(mock_service)
+        widget.set_width(560)
+
+        mock_display = Mock()
+        widget.render(mock_display, x_offset=0, y_offset=0)
+
+        # Find the draw_rectangle call for the header
+        rectangle_calls = [call for call in mock_display.draw_rectangle.call_args_list]
+
+        # At least one rectangle should be drawn (the header)
+        assert len(rectangle_calls) > 0
+
+        # Check that header rectangle uses full width
+        header_call = rectangle_calls[0]
+        rect_width = header_call[1]["width"]  # keyword argument
+
+        # Header should span close to full width (accounting for padding)
+        expected_width = 560 - 2 * widget.padding + 10  # from your code
+        assert rect_width == expected_width
+
+    def test_content_respects_padding_with_custom_width(self):
+        """Content should be positioned with proper padding regardless of width."""
+        mock_service = Mock()
+        mock_service.get_events.return_value = [
+            {
+                "summary": "Test Event",
+                "time": "9:00AM",
+                "date": Mock(date=Mock(return_value=Mock())),
+            }
+        ]
+
+        widget = CalendarWidget(mock_service)
+        widget.set_width(560)
+
+        mock_display = Mock()
+        widget.render(mock_display, x_offset=0, y_offset=0)
+
+        # Check text rendering positions
+        text_calls = mock_display.draw_text.call_args_list
+
+        # All text should be within the widget bounds
+        for call in text_calls:
+            x_pos = call[1]["x_pos"]
+            # Text should start at or after padding
+            assert x_pos >= widget.padding
+            # And shouldn't exceed width (roughly)
+            assert x_pos < widget.width
