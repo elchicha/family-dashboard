@@ -1,7 +1,7 @@
-from datetime import timedelta, date
+from datetime import timedelta, date, datetime
 from io import BytesIO
 import yaml
-
+import threading
 from flask import Flask, send_file
 
 from src.display.png_display import PNGDisplay
@@ -24,26 +24,75 @@ def load_config():
 
 
 class MergedCalendarService:
-    """Service that merges events from multiple calendar services."""
+    """Service that merges events from multiple calendar services with caching."""
 
-    def __init__(self, services: list):
+    def __init__(self, services: list, cache_duration_minutes: int = 30):
         self.services = services
+        self.cache_duration = timedelta(minutes=cache_duration_minutes)
+        self.cache = {}  # Dict of cache_key -> (events, timestamp)
+        self.lock = threading.Lock()
 
     def get_events(self, start_date=None, end_date=None):
-        """Get events from all services and merge them."""
-        all_events = []
-        for service in self.services:
-            try:
-                events = service.get_events(start_date=start_date, end_date=end_date)
-                all_events.extend(events)
-            except Exception as e:
-                print(f"Warning: Failed to fetch from a calendar service: {e}")
+        """Get events from all services and merge them, with caching."""
+        if start_date is None:
+            start_date = date.today()
+        if end_date is None:
+            end_date = start_date
 
-        # Sort by date and time
-        return sorted(all_events, key=lambda e: (e["date"], e["time"]))
+        # Create cache key from date range
+        cache_key = (start_date, end_date)
+
+        with self.lock:
+            now = datetime.now()
+
+            # Check if we have valid cached data for this range
+            if cache_key in self.cache:
+                cached_events, cache_time = self.cache[cache_key]
+                age = (now - cache_time).total_seconds()
+
+                if (now - cache_time) < self.cache_duration:
+                    print(
+                        f"💾 Using cached merged events for {start_date} to {end_date} (age: {age:.0f}s)"
+                    )
+                    return cached_events
+
+            # Cache miss or expired - fetch from all services
+            print(
+                f"🔄 Fetching merged calendar events for {start_date} to {end_date}..."
+            )
+            all_events = []
+
+            for service in self.services:
+                try:
+                    events = service.get_events(
+                        start_date=start_date, end_date=end_date
+                    )
+                    all_events.extend(events)
+                except Exception as e:
+                    print(f"Warning: Failed to fetch from a calendar service: {e}")
+
+            # Sort by date and time
+            sorted_events = sorted(all_events, key=lambda e: (e["date"], e["time"]))
+
+            # Cache the results
+            self.cache[cache_key] = (sorted_events, now)
+            print(
+                f"✅ Cached {len(sorted_events)} merged events at {now.strftime('%H:%M:%S')}"
+            )
+
+            # Clean up old cache entries (keep only last 10 ranges)
+            if len(self.cache) > 10:
+                oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])
+                del self.cache[oldest_key]
+
+            return sorted_events
 
     def clear_cache(self):
         """Clear cache for all services."""
+        with self.lock:
+            self.cache.clear()
+            print("🗑️  Merged calendar cache cleared")
+
         for service in self.services:
             if hasattr(service, "clear_cache"):
                 service.clear_cache()
@@ -85,7 +134,7 @@ def initialize_services():
             calendar_service = MergedCalendarService([])
             return
 
-    # Initialize calendar services from config
+    # Initialize calendar services from config (WITHOUT caching at this level)
     for cal_config in config["calendars"]["sources"]:
         if cal_config.get("enabled", True):
             base_service = CalendarService(
@@ -94,15 +143,14 @@ def initialize_services():
                     "short_name", cal_config.get("name", "Unknown")
                 ),
             )
-            cached_service = CachedCalendarService(
-                service=base_service,
-                cache_duration_minutes=config["calendars"]["cache_duration_minutes"],
-            )
-            calendar_services.append(cached_service)
+            # Remove the CachedCalendarService wrapper here
+            calendar_services.append(base_service)
             print(f"✓ Loaded calendar: {cal_config['name']}")
-
-    # Create merged calendar service
-    calendar_service = MergedCalendarService(calendar_services)
+    # Create merged calendar service WITH caching at the merged level
+    calendar_service = MergedCalendarService(
+        calendar_services,
+        cache_duration_minutes=config["calendars"]["cache_duration_minutes"],
+    )
 
 
 @app.before_request
