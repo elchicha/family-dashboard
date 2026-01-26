@@ -6,6 +6,10 @@ from typing import List, Dict, Tuple
 from src.display.display_interface import DisplayInterface
 from src.widgets.widget_interface import WidgetInterface
 
+EVENTS_THRESHOLD_MEDIUM = 12
+
+EVENTS_THRESHOLD_SMALL = 6
+
 
 class CalendarWidget(WidgetInterface):
     """
@@ -154,12 +158,12 @@ class CalendarWidget(WidgetInterface):
         total_events = len(events)
 
         # Adaptive sizing based on event count
-        if total_events <= 6:
+        if total_events <= EVENTS_THRESHOLD_SMALL:
             font_size_event = 14
             font_size_header = 15
             line_height = 20
             spacing_between_days = 16
-        elif total_events <= 12:
+        elif total_events <= EVENTS_THRESHOLD_MEDIUM:
             font_size_event = 13
             font_size_header = 14
             line_height = 18
