@@ -1,6 +1,6 @@
 """Adaptive calendar widget that intelligently fits all events without truncation."""
 
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time as time_class
 from typing import List, Dict, Tuple
 
 from src.display.display_interface import DisplayInterface
@@ -33,12 +33,13 @@ class CalendarWidget(WidgetInterface):
     def __init__(
         self,
         calendar_service,
-        view_mode: str = "adaptive",
-        show_locations: bool = False,
-        available_height: int = 350,
-        events_per_day: int = 3,
-        start_offset_days: int = 0,  # NEW: Start from today+N days
-        show_header: bool = True,  # NEW: Option to hide header
+        view_mode="adaptive",
+        available_height=350,
+        start_offset_days=0,
+        show_header=True,
+        show_locations=False,
+        horizon_mode=False,
+        events_per_day=None,
     ):
         """
         Initialize calendar widget.
@@ -62,13 +63,16 @@ class CalendarWidget(WidgetInterface):
         self.events_per_day = events_per_day
         self.start_offset_days = start_offset_days
         self.show_header = show_header
+        self.horizon_mode = horizon_mode
 
     def set_width(self, width: int) -> None:
         self.width = width
 
     def render(self, display: DisplayInterface, x_offset: int = 0, y_offset: int = 0):
         """Render the calendar widget with adaptive layout."""
-        if self.view_mode == "adaptive":
+        if self.horizon_mode:
+            self._render_horizon_view(display, x_offset, y_offset)
+        elif self.view_mode == "adaptive":
             self._render_adaptive(display, x_offset, y_offset)
         elif self.view_mode == "five_day":
             self._render_multi_day_view(display, x_offset, y_offset, num_days=5)
@@ -771,3 +775,653 @@ class CalendarWidget(WidgetInterface):
         )
 
         return y_pos + group_height + 4  # Add small spacing after group
+
+    def _render_horizon_view(self, display, x_offset, y_offset):
+        """
+        Render time-aware horizon view optimized for 15-min refresh rate.
+        Shows a rolling 24-hour window of what matters now.
+        """
+        now = datetime.now()
+        current_time = now.time()
+        today = now.date()
+        tomorrow = today + timedelta(days=1)
+
+        # Get events for today and tomorrow
+        events = self.calendar_service.get_events(
+            start_date=today, end_date=tomorrow + timedelta(days=1)
+        )
+
+        # Separate today's and tomorrow's events - FIX THE COMPARISON
+        today_events = []
+        tomorrow_events = []
+
+        for e in events:
+            event_date = e["date"]
+            # Convert to date if it's a datetime
+            if hasattr(event_date, "date"):
+                event_date = event_date.date()
+            elif isinstance(event_date, str):
+                # Parse string dates if needed
+                event_date = datetime.strptime(event_date, "%Y-%m-%d").date()
+
+            if event_date == today:
+                today_events.append(e)
+            elif event_date == tomorrow:
+                tomorrow_events.append(e)
+
+        # Categorize today's events by time
+        past_events = []
+        happening_now = []
+        upcoming_today = []
+        all_day_events = []
+
+        for event in today_events:
+            event_time_str = event["time"]
+
+            if event_time_str == "All Day":
+                all_day_events.append(event)
+            else:
+                event_time = self._parse_time(event_time_str)
+                if event_time:
+                    # Consider event "happening now" if within its duration
+                    event_end = self._get_event_end_time(event, event_time)
+
+                    if event_end < current_time:
+                        past_events.append(event)
+                    elif event_time <= current_time < event_end:
+                        happening_now.append(event)
+                    else:
+                        upcoming_today.append(event)
+
+        # Check if we have any events left to show today
+        has_content_today = bool(all_day_events or happening_now or upcoming_today)
+
+        # If no meaningful events today (all past), show tomorrow
+        if not has_content_today and not past_events:
+            # Completely empty today
+            return self._render_empty_today_with_tomorrow_preview(
+                display, x_offset, y_offset, tomorrow_events
+            )
+
+        # Determine view based on time of day
+        y = y_offset + self.padding
+
+        # MORNING (before 8 AM): Full day preview
+        if current_time < time_class(8, 0):
+            y = self._render_morning_view(
+                display, x_offset, y, all_day_events, upcoming_today
+            )
+
+        # ACTIVE DAY (8 AM - 6 PM): Show context + what's next
+        elif current_time < time_class(18, 0):
+            y = self._render_active_day_view(
+                display,
+                x_offset,
+                y,
+                past_events,
+                happening_now,
+                upcoming_today,
+                all_day_events,
+                now,
+            )
+
+        # EVENING (6 PM - 9 PM): Wrap up today + preview tomorrow
+        elif current_time < time_class(21, 0):
+            y = self._render_evening_view(
+                display,
+                x_offset,
+                y,
+                all_day_events,
+                happening_now,
+                upcoming_today,
+                tomorrow_events,
+                len(past_events),
+            )
+
+        # NIGHT (after 9 PM): Show remaining today events + tomorrow
+        else:
+            y = self._render_night_view(
+                display,
+                x_offset,
+                y,
+                all_day_events,
+                upcoming_today,
+                tomorrow_events,
+                len(past_events),
+            )
+
+    def _render_empty_today_with_tomorrow_preview(
+        self, display, x_offset, y_offset, tomorrow_events
+    ):
+        """When today is empty, show tomorrow's schedule"""
+        y = y_offset + self.padding
+
+        # Show that today is clear
+        display.draw_text(
+            x_pos=x_offset + self.padding,
+            y_pos=y,
+            text="Nothing scheduled today",
+            font_size=14,
+            color="#888888",
+        )
+        y += 35
+
+        # Preview tomorrow
+        if tomorrow_events:
+            y = self._render_section_header(display, x_offset, y, "TOMORROW")
+            y += 5
+            y = self._render_events_compact(
+                display, x_offset, y, tomorrow_events, max_events=8
+            )
+        else:
+            display.draw_text(
+                x_pos=x_offset + self.padding,
+                y_pos=y,
+                text="Tomorrow is clear too ✨",
+                font_size=14,
+                color="#888888",
+            )
+
+        return y
+
+    def _render_morning_view(
+        self, display, x_offset, y_offset, all_day_events, upcoming_today
+    ):
+        """Morning view: Show what's ahead today"""
+        y = y_offset
+
+        # All-day events at top (compact)
+        if all_day_events:
+            y = self._render_all_day_banner(display, x_offset, y, all_day_events)
+            y += 15
+
+        # Show all upcoming events for the day
+        if upcoming_today:
+            display.draw_text(
+                x_pos=x_offset + self.padding,
+                y_pos=y,
+                text="TODAY",
+                font_size=12,
+                color="#666666",
+            )
+            y += 22
+
+            y = self._render_events_compact(
+                display, x_offset, y, upcoming_today, show_countdown_to_first=True
+            )
+        else:
+            display.draw_text(
+                x_pos=x_offset + self.padding,
+                y_pos=y,
+                text="Nothing else scheduled today",
+                font_size=14,
+                color="#888888",
+            )
+
+        return y
+
+    def _render_active_day_view(
+        self,
+        display,
+        x_offset,
+        y_offset,
+        past_events,
+        happening_now,
+        upcoming_today,
+        all_day_events,
+        now,
+    ):
+        """Active day: Show context + what's happening/next"""
+        y = y_offset
+
+        # All-day events (if any, compact at top)
+        if all_day_events:
+            y = self._render_all_day_banner(display, x_offset, y, all_day_events)
+            y += 10
+
+        # What's happening RIGHT NOW (highlighted)
+        if happening_now:
+            for event in happening_now:
+                y = self._render_now_event(display, x_offset, y, event, now)
+                y += 10
+
+        # Next upcoming event with countdown
+        if upcoming_today:
+            next_event = upcoming_today[0]
+            y = self._render_next_event_with_countdown(
+                display, x_offset, y, next_event, now
+            )
+            y += 15
+
+            # Rest of upcoming events (compact)
+            if len(upcoming_today) > 1:
+                remaining = upcoming_today[1:]
+                y = self._render_events_compact(
+                    display, x_offset, y, remaining, max_events=5, style="compact"
+                )
+
+        # If nothing left today, show "rest of day is clear"
+        elif not happening_now:
+            display.draw_text(
+                x_pos=x_offset + self.padding,
+                y_pos=y,
+                text="Rest of day is clear ✓",
+                font_size=14,
+                color="#888888",
+            )
+
+        return y
+
+    def _render_evening_view(
+        self,
+        display,
+        x_offset,
+        y_offset,
+        all_day_events,
+        happening_now,
+        upcoming_today,
+        tomorrow_events,
+        num_past_events,
+    ):
+        """Evening: Brief today summary + tomorrow preview"""
+        y = y_offset
+
+        # Show all-day events if any
+        if all_day_events:
+            y = self._render_all_day_banner(display, x_offset, y, all_day_events)
+            y += 10
+
+        # Show what's happening now
+        if happening_now:
+            for event in happening_now:
+                y = self._render_now_event(display, x_offset, y, event, datetime.now())
+                y += 10
+
+        # Show remaining today events
+        if upcoming_today:
+            display.draw_text(
+                x_pos=x_offset + self.padding,
+                y_pos=y,
+                text="STILL TODAY",
+                font_size=12,
+                color="#666666",
+            )
+            y += 22
+            y = self._render_events_compact(
+                display, x_offset, y, upcoming_today, max_events=4
+            )
+            y += 15
+        # ✅ Changed elif to if - show completion message independently
+        if not happening_now and not upcoming_today and num_past_events > 0:
+            # Show completion only if there were events and none remaining
+            display.draw_text(
+                x_pos=x_offset + self.padding,
+                y_pos=y,
+                text=f"✓ Today: {num_past_events} timed events done",
+                font_size=12,
+                color="#888888",
+            )
+            y += 25
+
+        # Tomorrow preview (if space allows)
+        if tomorrow_events and y < y_offset + self.available_height - 100:
+            y = self._render_section_header(display, x_offset, y, "TOMORROW")
+            y += 5
+            remaining_space = y_offset + self.available_height - y
+            max_tomorrow_events = max(3, remaining_space // 25)
+            y = self._render_events_compact(
+                display, x_offset, y, tomorrow_events, max_events=max_tomorrow_events
+            )
+
+        return y
+
+    def _render_night_view(
+        self,
+        display,
+        x_offset,
+        y_offset,
+        all_day_events,
+        upcoming_today,
+        tomorrow_events,
+        num_past_events,
+    ):
+        """Night (after 9 PM): Show remaining today + focus on tomorrow"""
+        y = y_offset
+
+        # If there are still events today, show them first
+        has_today_content = bool(all_day_events or upcoming_today)
+
+        if has_today_content:
+            display.draw_text(
+                x_pos=x_offset + self.padding,
+                y_pos=y,
+                text="TONIGHT",
+                font_size=12,
+                color="#666666",
+            )
+            y += 22
+
+            # Show all-day events compactly
+            if all_day_events:
+                y = self._render_all_day_banner(display, x_offset, y, all_day_events)
+                y += 5
+
+            # Show remaining timed events
+            if upcoming_today:
+                y = self._render_events_compact(
+                    display, x_offset, y, upcoming_today, max_events=3
+                )
+
+            y += 20
+        elif num_past_events > 0:
+            # Show that today had events (even if they're all done)
+            display.draw_text(
+                x_pos=x_offset + self.padding,
+                y_pos=y,
+                text=f"Today: {num_past_events} events completed ✓",
+                font_size=13,
+                color="#888888",
+            )
+            y += 30
+
+        # Tomorrow section
+        display.draw_text(
+            x_pos=x_offset + self.padding,
+            y_pos=y,
+            text="TOMORROW",
+            font_size=14,
+            color="#000000",
+        )
+        y += 25
+
+        if tomorrow_events:
+            remaining_space = y_offset + self.available_height - y
+            max_tomorrow_events = max(6, remaining_space // 23)
+            y = self._render_events_compact(
+                display, x_offset, y, tomorrow_events, max_events=max_tomorrow_events
+            )
+        else:
+            display.draw_text(
+                x_pos=x_offset + self.padding,
+                y_pos=y,
+                text="Nothing scheduled",
+                font_size=14,
+                color="#888888",
+            )
+
+        return y
+
+    def _render_now_event(self, display, x_offset, y_offset, event, now):
+        """Render highlighted 'happening now' event"""
+        x = x_offset + self.padding
+
+        # Subtle background box
+        display.draw_rectangle(
+            x_pos=x - 5,
+            y_pos=y_offset - 3,
+            width=self.width - 2 * self.padding + 10,
+            height=50,
+            fill="#F5F5F5",
+            outline="#000000",
+        )
+
+        # "NOW" badge
+        display.draw_text(
+            x_pos=x,
+            y_pos=y_offset + 2,
+            text="● NOW",
+            font_size=12,  # Changed
+            color="#CC0000",
+        )
+
+        # Event details
+        display.draw_text(
+            x_pos=x,
+            y_pos=y_offset + 20,
+            text=event["summary"],
+            font_size=14,  # Changed
+            color="#000000",
+        )
+
+        # Location if available
+        if event.get("location") and self.show_locations:
+            display.draw_text(
+                x_pos=x + 10,
+                y_pos=y_offset + 37,
+                text=f"📍 {event['location']}",
+                font_size=11,  # Changed
+                color="#666666",
+            )
+
+        return y_offset + 55
+
+    def _render_next_event_with_countdown(
+        self, display, x_offset, y_offset, event, now
+    ):
+        """Render next event with time until it starts"""
+        x = x_offset + self.padding
+
+        # Calculate time until event
+        event_time = self._parse_time(event["time"])
+        if event_time:
+            event_datetime = datetime.combine(event["date"], event_time)
+            time_until = event_datetime - now
+            minutes_until = int(time_until.total_seconds() / 60)
+
+            # Countdown text
+            if minutes_until < 60:
+                countdown = f"in {minutes_until} min"
+                countdown_color = "#FF6600" if minutes_until < 15 else "#666666"
+            else:
+                hours = minutes_until // 60
+                countdown = f"in {hours}h {minutes_until % 60}m"
+                countdown_color = "#666666"
+
+            # "UP NEXT" label
+            display.draw_text(
+                x_pos=x,
+                y_pos=y_offset,
+                text="UP NEXT",
+                font_size=11,
+                color="#666666",
+            )
+
+            # Event time and countdown
+            display.draw_text(
+                x_pos=x,
+                y_pos=y_offset + 16,
+                text=f"{self._format_time(event['time'])}  •  {countdown}",
+                font_size=12,
+                color=countdown_color,
+            )
+
+            # Event summary
+            display.draw_text(
+                x_pos=x,
+                y_pos=y_offset + 33,
+                text=event["summary"],
+                font_size=14,
+                color="#000000",
+            )
+
+            return y_offset + 50
+
+        # Fallback if time parsing fails
+        return self._render_event_line(display, x_offset, y_offset, event)
+
+    def _render_events_compact(
+        self,
+        display,
+        x_offset,
+        y_offset,
+        events,
+        max_events=None,
+        style="normal",
+        show_countdown_to_first=False,
+    ):
+        """Render events in compact format"""
+        y = y_offset
+
+        if max_events:
+            events = events[:max_events]
+
+        for idx, event in enumerate(events):
+            # Show countdown only for first event if requested
+            if idx == 0 and show_countdown_to_first:
+                event_time = self._parse_time(event["time"])
+                if event_time:
+                    now = datetime.now()
+                    event_datetime = datetime.combine(event["date"], event_time)
+                    minutes_until = int((event_datetime - now).total_seconds() / 60)
+
+                    if 0 < minutes_until < 120:
+                        countdown_text = (
+                            f" (in {minutes_until}m)"
+                            if minutes_until < 60
+                            else f" (in {minutes_until//60}h)"
+                        )
+                        event["_countdown"] = countdown_text
+
+            y = self._render_event_line(display, x_offset, y, event, compact=True)
+
+            # Spacing between events
+            y += 23 if style == "normal" else 21
+
+            # Check if we're running out of space
+            if y > y_offset + self.available_height - 40:
+                remaining = len(events) - idx - 1
+                if remaining > 0:
+                    display.draw_text(
+                        x_pos=x_offset + self.padding,
+                        y_pos=y,
+                        text=f"+ {remaining} more...",
+                        font_size=11,
+                        color="#999999",
+                    )
+                break
+
+        return y
+
+    def _render_event_line(self, display, x_offset, y_offset, event, compact=False):
+        """Render a single event line"""
+        x = x_offset + self.padding
+
+        # Time
+        time_text = self._format_time(event["time"])
+        display.draw_text(
+            x_pos=x,
+            y_pos=y_offset,
+            text=time_text,
+            font_size=11 if compact else 12,
+            color="#666666",
+        )
+
+        # Event summary (with optional countdown)
+        summary_text = event["summary"]
+        if event.get("_countdown"):
+            summary_text += event["_countdown"]
+
+        display.draw_text(
+            x_pos=x + 65,
+            y_pos=y_offset,
+            text=summary_text,
+            font_size=12 if compact else 14,
+            color="#000000",
+        )
+
+        return y_offset
+
+    def _render_all_day_banner(self, display, x_offset, y_offset, all_day_events):
+        """Render all-day events in a compact banner"""
+        x = x_offset + self.padding
+
+        # Combine all-day event names
+        event_names = [e["summary"] for e in all_day_events]
+        combined_text = " • ".join(event_names)
+
+        # Light grey background
+        display.draw_rectangle(
+            x_pos=x - 5,
+            y_pos=y_offset - 2,
+            width=self.width - 2 * self.padding + 10,
+            height=22,
+            fill="#F5F5F5",
+            outline=None,
+        )
+
+        # "[AYO]" tag + event names
+        display.draw_text(
+            x_pos=x,
+            y_pos=y_offset + 2,
+            text=f"[ALL DAY] {combined_text}",
+            font_size=11,
+            color="#666666",
+        )
+
+        return y_offset + 25
+
+    def _render_section_header(self, display, x_offset, y_offset, text):
+        """Render a section header"""
+        display.draw_text(
+            x_pos=x_offset + self.padding,
+            y_pos=y_offset,
+            text=text,
+            font_size=12,  # Changed from font="roboto_bold_12"
+            color="#666666",
+        )
+        return y_offset + 20
+
+    def _get_event_end_time(self, event, start_time):
+        """
+        Get event end time. Assumes 1 hour if not specified.
+        Can be enhanced to parse duration from event data.
+        """
+        # Check if event has duration/end time
+        if "duration_minutes" in event:
+            duration = timedelta(minutes=event["duration_minutes"])
+        else:
+            # Default 1 hour duration
+            duration = timedelta(hours=1)
+
+        # Combine start time with duration
+        start_datetime = datetime.combine(datetime.today(), start_time)
+        end_datetime = start_datetime + duration
+
+        return end_datetime.time()
+
+    def _parse_time(self, time_str):
+        """Parse time string to time object"""
+        if time_str == "All Day":
+            return None
+
+        try:
+            time_str = time_str.replace(" ", "").upper()
+            if "AM" in time_str or "PM" in time_str:
+                return datetime.strptime(time_str, "%I:%M%p").time()
+            else:
+                return datetime.strptime(time_str, "%H:%M").time()
+        except:
+            return None
+
+    def _format_time(self, time_str):
+        """Format time for display (ensure no space before AM/PM)"""
+        if time_str == "All Day":
+            return "All Day"
+        return time_str.replace(" ", "")
+
+    def _get_font_size(self, font_name):
+        """Extract font size from font name like 'roboto_regular_14'"""
+        # Map font names to sizes
+        font_map = {
+            "roboto_bold_16": 16,
+            "roboto_bold_14": 14,
+            "roboto_bold_12": 12,
+            "roboto_bold_11": 11,
+            "roboto_medium_14": 14,
+            "roboto_medium_12": 12,
+            "roboto_medium_11": 11,
+            "roboto_regular_14": 14,
+            "roboto_regular_12": 12,
+            "roboto_regular_11": 11,
+        }
+        return font_map.get(font_name, 12)
