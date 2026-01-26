@@ -813,27 +813,9 @@ class CalendarWidget(WidgetInterface):
         current_time, now, today_events, tomorrow_events = self._fetch_horizon_events()
 
         # Categorize today's events by time
-        past_events = []
-        happening_now = []
-        upcoming_today = []
-        all_day_events = []
-
-        for event in today_events:
-            event_time_str = event["time"]
-
-            if event_time_str == "All Day":
-                all_day_events.append(event)
-            else:
-                event_time = self._parse_time(event_time_str)
-                if event_time:
-                    event_end = self._get_event_end_time(event, event_time)
-
-                    if event_end < current_time:
-                        past_events.append(event)
-                    elif event_time <= current_time < event_end:
-                        happening_now.append(event)
-                    else:
-                        upcoming_today.append(event)
+        all_day_events, happening_now, past_events, upcoming_today = (
+            self._categorize_events_by_time(current_time, today_events)
+        )
 
         # Calculate space budget
         y = y_offset + self.padding
@@ -966,6 +948,32 @@ class CalendarWidget(WidgetInterface):
                 y_past_start += 18
 
         return y
+
+    def _categorize_events_by_time(
+        self, current_time: list[Any], today_events: datetime
+    ) -> tuple[list[Any], list[Any], list[Any], list[Any]]:
+        past_events = []
+        happening_now = []
+        upcoming_today = []
+        all_day_events = []
+
+        for event in today_events:
+            event_time_str = event["time"]
+
+            if event_time_str == "All Day":
+                all_day_events.append(event)
+            else:
+                event_time = self._parse_time(event_time_str)
+                if event_time:
+                    event_end = self._get_event_end_time(event, event_time)
+
+                    if event_end < current_time:
+                        past_events.append(event)
+                    elif event_time <= current_time < event_end:
+                        happening_now.append(event)
+                    else:
+                        upcoming_today.append(event)
+        return all_day_events, happening_now, past_events, upcoming_today
 
     def _fetch_horizon_events(self) -> tuple[list[Any], time, datetime, list[Any]]:
         """
