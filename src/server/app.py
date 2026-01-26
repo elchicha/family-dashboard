@@ -169,7 +169,7 @@ def render_display(display_id: str):
     layout = TwoColumnLayout(
         width=config["display"]["width"],
         height=config["display"]["height"],
-        left_ratio=0.7,
+        left_ratio=0.60,
         widget_spacing=10,
         debug=True,
     )
