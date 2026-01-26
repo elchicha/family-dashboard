@@ -6,9 +6,33 @@ from typing import List, Dict, Tuple
 from src.display.display_interface import DisplayInterface
 from src.widgets.widget_interface import WidgetInterface
 
-EVENTS_THRESHOLD_MEDIUM = 12
+# Layout dimensions
+DEFAULT_WIDTH = 480
+DEFAULT_HEIGHT = 350
+DEFAULT_PADDING = 20
 
+# Spacing between days
+SPACING_COMFORTABLE = 16
+SPACING_MEDIUM = 14
+SPACING_COMPACT = 12
+
+# Font size for different event densities
+FONT_SIZE_HEADER_SMALL = 13
+FONT_SIZE_HEADER_MEDIUM = 14
+FONT_SIZE_HEADER_LARGE = 15
+
+FONT_SIZE_EVENT_LARGE = 14
+FONT_SIZE_EVENT_MEDIUM = 13
+FONT_SIZE_EVENT_SMALL = 12
+
+# Line heights
+LINE_HEIGHT_COMPACT = 16
+LINE_HEIGHT_NORMAL = 18
+LINE_HEIGHT_COMFORTABLE = 20
+
+# Event count thresholds for adaptive sizing
 EVENTS_THRESHOLD_SMALL = 6
+EVENTS_THRESHOLD_MEDIUM = 12
 
 
 class CalendarWidget(WidgetInterface):
@@ -38,7 +62,7 @@ class CalendarWidget(WidgetInterface):
         self,
         calendar_service,
         view_mode="adaptive",
-        available_height=350,
+        available_height=DEFAULT_HEIGHT,
         start_offset_days=0,
         show_header=True,
         show_locations=False,
@@ -60,8 +84,8 @@ class CalendarWidget(WidgetInterface):
         self.calendar_service = calendar_service
         self.view_mode = view_mode
         self.show_locations = show_locations
-        self.padding = 20
-        self.width = 480
+        self.padding = DEFAULT_PADDING
+        self.width = DEFAULT_WIDTH
         self.available_height = available_height
         self.height = available_height
         self.events_per_day = events_per_day
@@ -159,20 +183,20 @@ class CalendarWidget(WidgetInterface):
 
         # Adaptive sizing based on event count
         if total_events <= EVENTS_THRESHOLD_SMALL:
-            font_size_event = 14
-            font_size_header = 15
-            line_height = 20
-            spacing_between_days = 16
+            font_size_event = FONT_SIZE_EVENT_LARGE
+            font_size_header = FONT_SIZE_HEADER_LARGE
+            line_height = LINE_HEIGHT_COMFORTABLE
+            spacing_between_days = SPACING_COMFORTABLE
         elif total_events <= EVENTS_THRESHOLD_MEDIUM:
-            font_size_event = 13
-            font_size_header = 14
-            line_height = 18
-            spacing_between_days = 14
+            font_size_event = FONT_SIZE_EVENT_MEDIUM
+            font_size_header = FONT_SIZE_HEADER_MEDIUM
+            line_height = LINE_HEIGHT_NORMAL
+            spacing_between_days = SPACING_MEDIUM
         else:
-            font_size_event = 12
-            font_size_header = 13
-            line_height = 16
-            spacing_between_days = 12
+            font_size_event = FONT_SIZE_EVENT_SMALL
+            font_size_header = FONT_SIZE_HEADER_SMALL
+            line_height = LINE_HEIGHT_COMPACT
+            spacing_between_days = SPACING_COMPACT
 
         # PRE-CALCULATE total height needed for all days WITH EVENTS
         total_height_needed = self.padding  # Start with top padding
@@ -1011,7 +1035,7 @@ class CalendarWidget(WidgetInterface):
         # Time until (right-aligned)
         if time_until_text:
             display.draw_text(
-                x_pos=x + 350,
+                x_pos=x + DEFAULT_HEIGHT,
                 y_pos=y_offset,
                 text=time_until_text,
                 font_size=10,
