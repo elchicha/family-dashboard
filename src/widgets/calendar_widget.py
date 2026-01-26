@@ -1,7 +1,7 @@
 """Adaptive calendar widget that intelligently fits all events without truncation."""
 
-from datetime import datetime, timedelta, date, time as time_class
-from typing import List, Dict, Tuple
+from datetime import datetime, timedelta, date, time as time_class, time
+from typing import List, Dict, Tuple, Any
 
 from src.display.display_interface import DisplayInterface
 from src.widgets.widget_interface import WidgetInterface
@@ -810,31 +810,7 @@ class CalendarWidget(WidgetInterface):
         PRIORITY: Show ALL upcoming events - no surprises.
         Past events minimized but visible.
         """
-        now = datetime.now()
-        current_time = now.time()
-        today = now.date()
-        tomorrow = today + timedelta(days=1)
-
-        # Get events for today and tomorrow
-        events = self.calendar_service.get_events(
-            start_date=today, end_date=tomorrow + timedelta(days=1)
-        )
-
-        # Separate today's and tomorrow's events
-        today_events = []
-        tomorrow_events = []
-
-        for e in events:
-            event_date = e["date"]
-            if hasattr(event_date, "date"):
-                event_date = event_date.date()
-            elif isinstance(event_date, str):
-                event_date = datetime.strptime(event_date, "%Y-%m-%d").date()
-
-            if event_date == today:
-                today_events.append(e)
-            elif event_date == tomorrow:
-                tomorrow_events.append(e)
+        current_time, now, today_events, tomorrow_events = self._fetch_horizon_events()
 
         # Categorize today's events by time
         past_events = []
@@ -990,6 +966,40 @@ class CalendarWidget(WidgetInterface):
                 y_past_start += 18
 
         return y
+
+    def _fetch_horizon_events(self) -> tuple[list[Any], time, datetime, list[Any]]:
+        """
+        Fetch events for today and tomorrow, separated by day.
+
+        Returns:
+            tuple(now, current_time, today, tomorrow, today_events, tomorrow_events)
+        """
+        now = datetime.now()
+        current_time = now.time()
+        today = now.date()
+        tomorrow = today + timedelta(days=1)
+
+        # Get events for today and tomorrow
+        events = self.calendar_service.get_events(
+            start_date=today, end_date=tomorrow + timedelta(days=1)
+        )
+
+        # Separate today's and tomorrow's events
+        today_events = []
+        tomorrow_events = []
+
+        for e in events:
+            event_date = e["date"]
+            if hasattr(event_date, "date"):
+                event_date = event_date.date()
+            elif isinstance(event_date, str):
+                event_date = datetime.strptime(event_date, "%Y-%m-%d").date()
+
+            if event_date == today:
+                today_events.append(e)
+            elif event_date == tomorrow:
+                tomorrow_events.append(e)
+        return current_time, now, today_events, tomorrow_events
 
     def _render_event_line_with_time_until(
         self, display, x_offset, y_offset, event, now
