@@ -950,32 +950,36 @@ class CalendarWidget(WidgetInterface):
         return y
 
     def _categorize_events_by_time(
-        self, current_time: list[Any], today_events: datetime
+        self, current_time: time, today_events: list[Any]
     ) -> tuple[list[Any], list[Any], list[Any], list[Any]]:
+        """
+        Categorize events by their time relative to current time.
+        """
         past_events = []
         happening_now = []
         upcoming_today = []
         all_day_events = []
 
         for event in today_events:
-            event_time_str = event["time"]
+            event_time_str = event.get("time", "")
 
-            if event_time_str == "All Day":
+            if event_time_str == "All Day" or not event_time_str:
                 all_day_events.append(event)
-            else:
-                event_time = self._parse_time(event_time_str)
-                if event_time:
-                    event_end = self._get_event_end_time(event, event_time)
+                continue
 
-                    if event_end < current_time:
-                        past_events.append(event)
-                    elif event_time <= current_time < event_end:
-                        happening_now.append(event)
-                    else:
-                        upcoming_today.append(event)
+            event_time = self._parse_time(event_time_str)
+            if event_time:
+                event_end = self._get_event_end_time(event, event_time)
+
+                if event_end < current_time:
+                    past_events.append(event)
+                elif event_time <= current_time < event_end:
+                    happening_now.append(event)
+                else:
+                    upcoming_today.append(event)
         return all_day_events, happening_now, past_events, upcoming_today
 
-    def _fetch_horizon_events(self) -> tuple[list[Any], time, datetime, list[Any]]:
+    def _fetch_horizon_events(self) -> tuple[time, datetime, list[Any], list[Any]]:
         """
         Fetch events for today and tomorrow, separated by day.
 

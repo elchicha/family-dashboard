@@ -11,6 +11,8 @@ from src.services.calendar_service import CalendarService
 from src.services.cached_calendar_service import CachedCalendarService
 from src.widgets.date_widget import DateWidget
 
+DEBUG_MODE = False
+
 app = Flask(__name__)
 
 
@@ -171,7 +173,7 @@ def render_display(display_id: str):
         height=config["display"]["height"],
         left_ratio=0.60,
         widget_spacing=10,
-        debug=True,
+        debug=DEBUG_MODE,
     )
 
     if display_id == "kitchen":
@@ -331,6 +333,6 @@ if __name__ == "__main__":
     print("🔍 Debug calendar at http://localhost:5000/debug/calendar")
     print("🗑️  Clear cache at http://localhost:5000/admin/clear-cache")
     print("🔄 Press Ctrl+C to stop")
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=DEBUG_MODE, host="0.0.0.0", port=5000)
 else:
     print("✅ Flask app loaded successfully (test mode)")
