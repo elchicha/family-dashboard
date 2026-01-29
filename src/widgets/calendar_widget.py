@@ -311,34 +311,14 @@ class CalendarWidget(WidgetInterface):
         past_events = []
 
         for event in events:
-            event_time_str = event.get("time", "")
             try:
-                # Parse event time
-                if ":" in event_time_str:
-                    time_parts = (
-                        event_time_str.replace("AM", "")
-                        .replace("PM", "")
-                        .strip()
-                        .split(":")
-                    )
-                    hour = int(time_parts[0])
-                    minute = int(time_parts[1]) if len(time_parts) > 1 else 0
-
-                    # Handle PM times
-                    if "PM" in event_time_str and hour != 12:
-                        hour += 12
-                    elif "AM" in event_time_str and hour == 12:
-                        hour = 0
-
-                    event_time = datetime.now().replace(hour=hour, minute=minute).time()
-
-                    if event_time >= current_time:
-                        future_events.append(event)
-                    else:
-                        past_events.append(event)
+                event_time_str = self._format_time(event.get("time", ""))
+                event_time = self._parse_time(event_time_str)
+                if event_time >= current_time:
+                    future_events.append(event)
                 else:
-                    future_events.append(event)  # All-day events
-            except (ValueError, AttributeError):
+                    past_events.append(event)
+            except (ValueError, AttributeError, TypeError):
                 future_events.append(event)  # Can't parse, assume future
 
         # Render future events first (priority) - already sorted
@@ -645,101 +625,6 @@ class CalendarWidget(WidgetInterface):
 
         return events_by_date
 
-    def _sort_events_by_time(self, events: List[dict]) -> List[dict]:
-        """Sort events by their time, handling various time formats."""
-
-        def time_sort_key(event):
-            time_str = event.get("time", "")
-
-            # Handle empty time (all-day events) - put them first
-            if not time_str or time_str == "All Day":
-                return (0, 0)  # Midnight (sorts first)
-
-            try:
-                # Remove AM/PM and spaces
-                time_clean = time_str.replace("AM", "").replace("PM", "").strip()
-
-                # Parse hour and minute
-                if ":" in time_clean:
-                    parts = time_clean.split(":")
-                    hour = int(parts[0])
-                    minute = int(parts[1]) if len(parts) > 1 else 0
-                else:
-                    hour = int(time_clean)
-                    minute = 0
-
-                # Convert to 24-hour format
-                if "PM" in time_str and hour != 12:
-                    hour += 12
-                elif "AM" in time_str and hour == 12:
-                    hour = 0
-
-                return (hour, minute)
-            except (ValueError, AttributeError, IndexError):
-                # If parsing fails, put at end
-                return (99, 99)
-
-        return sorted(events, key=time_sort_key)
-
-    def _format_day_header(self, date_obj: date, day_offset: int) -> str:
-        """Format day header with day label and date."""
-        day_names = [
-            "Monday",
-            "Tuesday",
-            "Wednesday",
-            "Thursday",
-            "Friday",
-            "Saturday",
-            "Sunday",
-        ]
-        day_name = day_names[date_obj.weekday()]
-
-        if day_offset == 0:
-            day_label = "● TODAY"
-        elif day_offset == 1:
-            day_label = "○ TOMORROW"
-        else:
-            day_label = f"  {day_name.upper()}"
-
-        return f"{day_label} - {date_obj.strftime('%b %d').upper()}"
-
-    def _format_time(self, time_str: str) -> str:
-        """Format time string to compact 12-hour format."""
-        if not time_str:
-            return "All Day"
-
-        if "AM" in time_str or "PM" in time_str:
-            # Remove spaces for compactness: "5:30 PM" -> "5:30PM"
-            return time_str.replace(" ", "")
-
-        try:
-            hour, minute = map(int, time_str.split(":"))
-            period = "AM" if hour < 12 else "PM"
-            if hour == 0:
-                hour = 12
-            elif hour > 12:
-                hour = hour - 12
-
-            return f"{hour}:{minute:02d}{period}"
-        except (ValueError, AttributeError):
-            return time_str
-
-    def _separate_all_day_events(
-        self, events: List[dict]
-    ) -> Tuple[List[dict], List[dict]]:
-        """Separate all-day events from timed events."""
-        all_day_events = []
-        timed_events = []
-
-        for event in events:
-            time_str = event.get("time", "")
-            if time_str == "All Day" or not time_str:
-                all_day_events.append(event)
-            else:
-                timed_events.append(event)
-
-        return all_day_events, timed_events
-
     def _render_all_day_group(
         self,
         display,
@@ -948,70 +833,6 @@ class CalendarWidget(WidgetInterface):
                 y_past_start += 18
 
         return y
-
-    def _categorize_events_by_time(
-        self, current_time: time, today_events: list[Any]
-    ) -> tuple[list[Any], list[Any], list[Any], list[Any]]:
-        """
-        Categorize events by their time relative to current time.
-        """
-        past_events = []
-        happening_now = []
-        upcoming_today = []
-        all_day_events = []
-
-        for event in today_events:
-            event_time_str = event.get("time", "")
-
-            if event_time_str == "All Day" or not event_time_str:
-                all_day_events.append(event)
-                continue
-
-            event_time = self._parse_time(event_time_str)
-            if event_time:
-                event_end = self._get_event_end_time(event, event_time)
-
-                if event_end < current_time:
-                    past_events.append(event)
-                elif event_time <= current_time < event_end:
-                    happening_now.append(event)
-                else:
-                    upcoming_today.append(event)
-        return all_day_events, happening_now, past_events, upcoming_today
-
-    def _fetch_horizon_events(self) -> tuple[time, datetime, list[Any], list[Any]]:
-        """
-        Fetch events for today and tomorrow, separated by day.
-
-        Returns:
-            tuple(now, current_time, today, tomorrow, today_events, tomorrow_events)
-        """
-        now = datetime.now()
-        current_time = now.time()
-        today = now.date()
-        tomorrow = today + timedelta(days=1)
-
-        # Get events for today and tomorrow
-        events = self.calendar_service.get_events(
-            start_date=today, end_date=tomorrow + timedelta(days=1)
-        )
-
-        # Separate today's and tomorrow's events
-        today_events = []
-        tomorrow_events = []
-
-        for e in events:
-            event_date = e["date"]
-            if hasattr(event_date, "date"):
-                event_date = event_date.date()
-            elif isinstance(event_date, str):
-                event_date = datetime.strptime(event_date, "%Y-%m-%d").date()
-
-            if event_date == today:
-                today_events.append(e)
-            elif event_date == tomorrow:
-                tomorrow_events.append(e)
-        return current_time, now, today_events, tomorrow_events
 
     def _render_event_line_with_time_until(
         self, display, x_offset, y_offset, event, now
@@ -1286,6 +1107,71 @@ class CalendarWidget(WidgetInterface):
         )
         return y_offset + 20
 
+    def _fetch_horizon_events(self) -> tuple[time, datetime, list[Any], list[Any]]:
+        """
+        Fetch events for today and tomorrow, separated by day.
+
+        Returns:
+            tuple(now, current_time, today, tomorrow, today_events, tomorrow_events)
+        """
+        now = datetime.now()
+        current_time = now.time()
+        today = now.date()
+        tomorrow = today + timedelta(days=1)
+
+        # Get events for today and tomorrow
+        events = self.calendar_service.get_events(
+            start_date=today, end_date=tomorrow + timedelta(days=1)
+        )
+
+        # Separate today's and tomorrow's events
+        today_events = []
+        tomorrow_events = []
+
+        for e in events:
+            event_date = e["date"]
+            if hasattr(event_date, "date"):
+                event_date = event_date.date()
+            elif isinstance(event_date, str):
+                event_date = datetime.strptime(event_date, "%Y-%m-%d").date()
+
+            if event_date == today:
+                today_events.append(e)
+            elif event_date == tomorrow:
+                tomorrow_events.append(e)
+        return current_time, now, today_events, tomorrow_events
+
+    def _separate_all_day_events(
+        self, events: List[dict]
+    ) -> Tuple[List[dict], List[dict]]:
+        """Separate all-day events from timed events."""
+        all_day_events = []
+        timed_events = []
+
+        for event in events:
+            time_str = event.get("time", "")
+            if time_str == "All Day" or not time_str:
+                all_day_events.append(event)
+            else:
+                timed_events.append(event)
+
+        return all_day_events, timed_events
+
+    def _sort_events_by_time(self, events: List[dict]) -> List[dict]:
+        """Sort events by their time, handling various time formats."""
+
+        def time_sort_key(event):
+            event_time_str = self._format_time(event.get("time", ""))
+            if not event_time_str or event_time_str == "All Day":
+                return 0, 0  # Midnight (sorts first)
+            try:
+                event_time = self._parse_time(event_time_str)
+                return event_time.hour, event_time.minute
+            except (ValueError, AttributeError, IndexError):
+                return 99, 99
+
+        return sorted(events, key=time_sort_key)
+
     def _get_event_end_time(self, event, start_time):
         """
         Get event end time. Assumes 1 hour if not specified.
@@ -1304,37 +1190,69 @@ class CalendarWidget(WidgetInterface):
 
         return end_datetime.time()
 
-    def _parse_time(self, time_str):
-        """Parse time string to time object"""
-        if time_str == "All Day":
-            return None
+    def _categorize_events_by_time(
+        self, current_time: time, today_events: list[Any]
+    ) -> tuple[list[Any], list[Any], list[Any], list[Any]]:
+        """
+        Categorize events by their time relative to current time.
+        """
+        past_events = []
+        happening_now = []
+        upcoming_today = []
+        all_day_events = []
 
-        try:
-            time_str = time_str.replace(" ", "").upper()
-            if "AM" in time_str or "PM" in time_str:
-                return datetime.strptime(time_str, "%I:%M%p").time()
-            else:
-                return datetime.strptime(time_str, "%H:%M").time()
-        except:
-            return None
+        for event in today_events:
+            event_time_str = event.get("time", "")
 
-    def _format_time(self, time_str):
+            if event_time_str == "All Day" or not event_time_str:
+                all_day_events.append(event)
+                continue
+
+            event_time = self._parse_time(event_time_str)
+            if event_time:
+                event_end = self._get_event_end_time(event, event_time)
+
+                if event_end < current_time:
+                    past_events.append(event)
+                elif event_time <= current_time < event_end:
+                    happening_now.append(event)
+                else:
+                    upcoming_today.append(event)
+        return all_day_events, happening_now, past_events, upcoming_today
+
+    def _format_day_header(self, date_obj: date, day_offset: int) -> str:
+        """Format day header with day label and date."""
+        day_names = [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        ]
+        day_name = day_names[date_obj.weekday()]
+
+        if day_offset == 0:
+            day_label = "● TODAY"
+        elif day_offset == 1:
+            day_label = "○ TOMORROW"
+        else:
+            day_label = f"  {day_name.upper()}"
+
+        return f"{day_label} - {date_obj.strftime('%b %d').upper()}"
+
+    def _format_time(self, time_str: str) -> str:
         """Format time string to compact 12-hour format."""
-        if not time_str or time_str == "All Day":
+        if not time_str:
             return "All Day"
 
-        # Already in 12-hour format
         if "AM" in time_str or "PM" in time_str:
+            # Remove spaces for compactness: "5:30 PM" -> "5:30PM"
             return time_str.replace(" ", "")
 
-        # Convert 24-hour to 12-hour format
         try:
-            if ":" in time_str:
-                hour, minute = map(int, time_str.split(":"))
-            else:
-                hour = int(time_str)
-                minute = 0
-
+            hour, minute = map(int, time_str.split(":"))
             period = "AM" if hour < 12 else "PM"
             if hour == 0:
                 hour = 12
@@ -1345,19 +1263,15 @@ class CalendarWidget(WidgetInterface):
         except (ValueError, AttributeError):
             return time_str
 
-    def _get_font_size(self, font_name):
-        """Extract font size from font name like 'roboto_regular_14'"""
-        # Map font names to sizes
-        font_map = {
-            "roboto_bold_16": 16,
-            "roboto_bold_14": 14,
-            "roboto_bold_12": 12,
-            "roboto_bold_11": 11,
-            "roboto_medium_14": 14,
-            "roboto_medium_12": 12,
-            "roboto_medium_11": 11,
-            "roboto_regular_14": 14,
-            "roboto_regular_12": 12,
-            "roboto_regular_11": 11,
-        }
-        return font_map.get(font_name, 12)
+    def _parse_time(self, time_str):
+        """Parse time string to time object"""
+        if time_str == "All Day":
+            return None
+        try:
+            time_str = time_str.replace(" ", "").upper()
+            if "AM" in time_str or "PM" in time_str:
+                return datetime.strptime(time_str, "%I:%M%p").time()
+            else:
+                return datetime.strptime(time_str, "%H:%M").time()
+        except (ValueError, AttributeError):
+            return None
