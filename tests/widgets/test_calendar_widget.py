@@ -1,7 +1,7 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from src.widgets.calendar_widget import CalendarWidget
 
 
@@ -739,3 +739,814 @@ class TestCalendarWidgetAllDayGrouping:
         # Should render both types of events
         assert any("All Day Event" in text for text in texts)
         assert any("9:00AM" in text for text in texts)
+
+
+class TestCategorizeEventsByTime:
+    """Tests for _categorize_events_by_time method."""
+
+    @pytest.fixture
+    def widget(self):
+        return CalendarWidget(Mock(), horizon_mode=True)
+
+    def test_all_day_events_categorized_separately(self, widget):
+        """All-day events should be placed in the all_day list."""
+        today = datetime.now().date()
+        events = [
+            {"summary": "Holiday", "time": "All Day", "date": today},
+        ]
+
+        all_day, now_events, past, upcoming = widget._categorize_events_by_time(
+            time(10, 0), events
+        )
+
+        assert len(all_day) == 1
+        assert all_day[0]["summary"] == "Holiday"
+        assert len(now_events) == 0
+        assert len(past) == 0
+        assert len(upcoming) == 0
+
+    def test_past_events_categorized(self, widget):
+        """Events whose end time is before current_time should be past."""
+        today = datetime.now().date()
+        events = [
+            {"summary": "Early Meeting", "time": "08:00", "date": today},
+        ]
+        # Event is 08:00-09:00, current time is 10:00 -> past
+        all_day, now_events, past, upcoming = widget._categorize_events_by_time(
+            time(10, 0), events
+        )
+
+        assert len(past) == 1
+        assert past[0]["summary"] == "Early Meeting"
+
+    def test_happening_now_events_categorized(self, widget):
+        """Events where start <= current < end should be happening now."""
+        today = datetime.now().date()
+        events = [
+            {"summary": "Current Meeting", "time": "10:00", "date": today},
+        ]
+        # Event is 10:00-11:00, current time is 10:30 -> happening now
+        all_day, now_events, past, upcoming = widget._categorize_events_by_time(
+            time(10, 30), events
+        )
+
+        assert len(now_events) == 1
+        assert now_events[0]["summary"] == "Current Meeting"
+
+    def test_upcoming_events_categorized(self, widget):
+        """Events starting after current_time should be upcoming."""
+        today = datetime.now().date()
+        events = [
+            {"summary": "Afternoon Event", "time": "14:00", "date": today},
+        ]
+
+        all_day, now_events, past, upcoming = widget._categorize_events_by_time(
+            time(10, 0), events
+        )
+
+        assert len(upcoming) == 1
+        assert upcoming[0]["summary"] == "Afternoon Event"
+
+    def test_mixed_event_categorization(self, widget):
+        """Should correctly categorize a mix of all event types."""
+        today = datetime.now().date()
+        events = [
+            {"summary": "All Day Fest", "time": "All Day", "date": today},
+            {"summary": "Morning Done", "time": "07:00", "date": today},
+            {"summary": "In Progress", "time": "10:00", "date": today},
+            {"summary": "Later Today", "time": "15:00", "date": today},
+        ]
+        # 07:00-08:00 past, 10:00-11:00 now, 15:00 upcoming at 10:30
+        all_day, now_events, past, upcoming = widget._categorize_events_by_time(
+            time(10, 30), events
+        )
+
+        assert len(all_day) == 1
+        assert len(past) == 1
+        assert len(now_events) == 1
+        assert len(upcoming) == 1
+        assert past[0]["summary"] == "Morning Done"
+        assert now_events[0]["summary"] == "In Progress"
+        assert upcoming[0]["summary"] == "Later Today"
+
+    def test_unparseable_time_excluded(self, widget):
+        """Events with invalid time strings should be excluded from all categories."""
+        today = datetime.now().date()
+        events = [
+            {"summary": "Bad Time", "time": "not-a-time", "date": today},
+            {"summary": "Good Event", "time": "14:00", "date": today},
+        ]
+
+        all_day, now_events, past, upcoming = widget._categorize_events_by_time(
+            time(10, 0), events
+        )
+
+        total = len(all_day) + len(now_events) + len(past) + len(upcoming)
+        assert total == 1
+        assert upcoming[0]["summary"] == "Good Event"
+
+    def test_event_with_custom_duration(self, widget):
+        """Event with duration_minutes should use that for categorization."""
+        today = datetime.now().date()
+        events = [
+            {
+                "summary": "Long Meeting",
+                "time": "09:00",
+                "date": today,
+                "duration_minutes": 180,
+            },
+        ]
+        # 09:00 with 180min = ends at 12:00. At 11:00 still happening now.
+        all_day, now_events, past, upcoming = widget._categorize_events_by_time(
+            time(11, 0), events
+        )
+
+        assert len(now_events) == 1
+        assert now_events[0]["summary"] == "Long Meeting"
+
+
+class TestFetchHorizonEvents:
+    """Tests for _fetch_horizon_events method."""
+
+    def test_separates_today_and_tomorrow_events(self):
+        """Events should be correctly split by date."""
+        mock_service = Mock()
+        today = datetime.now().date()
+        tomorrow = today + timedelta(days=1)
+
+        mock_service.get_events.return_value = [
+            {"summary": "Today Event", "time": "09:00", "date": today},
+            {"summary": "Tomorrow Event", "time": "10:00", "date": tomorrow},
+        ]
+
+        widget = CalendarWidget(mock_service, horizon_mode=True)
+        current_time, now, today_events, tomorrow_events = (
+            widget._fetch_horizon_events()
+        )
+
+        assert len(today_events) == 1
+        assert today_events[0]["summary"] == "Today Event"
+        assert len(tomorrow_events) == 1
+        assert tomorrow_events[0]["summary"] == "Tomorrow Event"
+
+    def test_calls_service_with_correct_date_range(self):
+        """Service should be called with today to end of tomorrow."""
+        mock_service = Mock()
+        mock_service.get_events.return_value = []
+
+        widget = CalendarWidget(mock_service, horizon_mode=True)
+        widget._fetch_horizon_events()
+
+        call_args = mock_service.get_events.call_args
+        start_date = call_args[1]["start_date"]
+        end_date = call_args[1]["end_date"]
+
+        today = datetime.now().date()
+        assert start_date == today
+        assert end_date == today + timedelta(days=2)
+
+    def test_handles_datetime_dates(self):
+        """Should handle event dates that are datetime objects."""
+        mock_service = Mock()
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        mock_service.get_events.return_value = [
+            {"summary": "DateTime Event", "time": "09:00", "date": today},
+        ]
+
+        widget = CalendarWidget(mock_service, horizon_mode=True)
+        _, _, today_events, _ = widget._fetch_horizon_events()
+
+        assert len(today_events) == 1
+        assert today_events[0]["summary"] == "DateTime Event"
+
+    def test_handles_string_dates(self):
+        """Should handle event dates that are date strings."""
+        mock_service = Mock()
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        mock_service.get_events.return_value = [
+            {"summary": "String Date Event", "time": "09:00", "date": today_str},
+        ]
+
+        widget = CalendarWidget(mock_service, horizon_mode=True)
+        _, _, today_events, _ = widget._fetch_horizon_events()
+
+        assert len(today_events) == 1
+        assert today_events[0]["summary"] == "String Date Event"
+
+    def test_returns_time_types(self):
+        """Should return current_time as time and now as datetime."""
+        mock_service = Mock()
+        mock_service.get_events.return_value = []
+
+        widget = CalendarWidget(mock_service, horizon_mode=True)
+        current_time, now, _, _ = widget._fetch_horizon_events()
+
+        assert isinstance(current_time, time)
+        assert isinstance(now, datetime)
+
+    def test_ignores_events_outside_range(self):
+        """Events not matching today or tomorrow should be excluded."""
+        mock_service = Mock()
+        today = datetime.now().date()
+        far_future = today + timedelta(days=5)
+
+        mock_service.get_events.return_value = [
+            {"summary": "Today Event", "time": "09:00", "date": today},
+            {"summary": "Far Future", "time": "09:00", "date": far_future},
+        ]
+
+        widget = CalendarWidget(mock_service, horizon_mode=True)
+        _, _, today_events, tomorrow_events = widget._fetch_horizon_events()
+
+        assert len(today_events) == 1
+        assert len(tomorrow_events) == 0
+
+
+class TestRenderHorizonView:
+    """Tests for _render_horizon_view integration."""
+
+    @pytest.fixture
+    def mock_display(self):
+        return Mock()
+
+    @pytest.fixture
+    def widget(self):
+        mock_service = Mock()
+        return CalendarWidget(
+            mock_service, horizon_mode=True, available_height=480
+        )
+
+    def test_horizon_mode_activates_horizon_view(self, mock_display):
+        """Setting horizon_mode=True should use horizon view renderer."""
+        mock_service = Mock()
+        mock_service.get_events.return_value = []
+
+        widget = CalendarWidget(mock_service, horizon_mode=True, available_height=480)
+        widget.render(mock_display)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "Rest of day is clear" in calls_str
+
+    def test_renders_all_day_banner(self, mock_display, widget):
+        """Should render all-day events as a banner."""
+        today = datetime.now().date()
+        fetch_data = (
+            time(10, 30),
+            datetime.now().replace(hour=10, minute=30),
+            [{"summary": "Holiday", "time": "All Day", "date": today}],
+            [],
+        )
+
+        with patch.object(widget, "_fetch_horizon_events", return_value=fetch_data):
+            widget._render_horizon_view(mock_display, 0, 0)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "[ALL DAY]" in calls_str
+        assert "Holiday" in calls_str
+
+    def test_renders_happening_now_event(self, mock_display, widget):
+        """Should show NOW badge for events currently in progress."""
+        today = datetime.now().date()
+        fetch_data = (
+            time(10, 30),
+            datetime.now().replace(hour=10, minute=30),
+            [{"summary": "Standup", "time": "10:00", "date": today}],
+            [],
+        )
+
+        with patch.object(widget, "_fetch_horizon_events", return_value=fetch_data):
+            widget._render_horizon_view(mock_display, 0, 0)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "NOW" in calls_str
+        assert "Standup" in calls_str
+
+    def test_renders_up_next_for_first_upcoming(self, mock_display, widget):
+        """Should show UP NEXT for the first upcoming event."""
+        today = datetime.now().date()
+        fetch_data = (
+            time(10, 30),
+            datetime.now().replace(hour=10, minute=30),
+            [{"summary": "Lunch", "time": "12:00", "date": today}],
+            [],
+        )
+
+        with patch.object(widget, "_fetch_horizon_events", return_value=fetch_data):
+            widget._render_horizon_view(mock_display, 0, 0)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "UP NEXT" in calls_str
+        assert "Lunch" in calls_str
+
+    def test_renders_coming_up_today_section(self, mock_display, widget):
+        """Should show COMING UP TODAY when multiple upcoming events exist."""
+        today = datetime.now().date()
+        fetch_data = (
+            time(10, 30),
+            datetime.now().replace(hour=10, minute=30),
+            [
+                {"summary": "Lunch", "time": "12:00", "date": today},
+                {"summary": "Meeting", "time": "14:00", "date": today},
+                {"summary": "Review", "time": "16:00", "date": today},
+            ],
+            [],
+        )
+
+        with patch.object(widget, "_fetch_horizon_events", return_value=fetch_data):
+            widget._render_horizon_view(mock_display, 0, 0)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "COMING UP TODAY" in calls_str
+        assert "Meeting" in calls_str
+        assert "Review" in calls_str
+
+    def test_renders_rest_of_day_clear(self, mock_display, widget):
+        """Should show clear message when no upcoming or happening events."""
+        today = datetime.now().date()
+        fetch_data = (
+            time(20, 0),
+            datetime.now().replace(hour=20, minute=0),
+            [{"summary": "Past Event", "time": "09:00", "date": today}],
+            [],
+        )
+
+        with patch.object(widget, "_fetch_horizon_events", return_value=fetch_data):
+            widget._render_horizon_view(mock_display, 0, 0)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "Rest of day is clear" in calls_str
+
+    def test_renders_tomorrow_section(self, mock_display, widget):
+        """Should show TOMORROW section when tomorrow has events."""
+        today = datetime.now().date()
+        tomorrow = today + timedelta(days=1)
+        fetch_data = (
+            time(10, 30),
+            datetime.now().replace(hour=10, minute=30),
+            [{"summary": "Today Event", "time": "12:00", "date": today}],
+            [{"summary": "Tomorrow Event", "time": "09:00", "date": tomorrow}],
+        )
+
+        with patch.object(widget, "_fetch_horizon_events", return_value=fetch_data):
+            widget._render_horizon_view(mock_display, 0, 0)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "TOMORROW" in calls_str
+        assert "Tomorrow Event" in calls_str
+
+    def test_renders_past_events_section(self, mock_display, widget):
+        """Should show Earlier section for past events when space allows."""
+        today = datetime.now().date()
+        fetch_data = (
+            time(15, 0),
+            datetime.now().replace(hour=15, minute=0),
+            [
+                {"summary": "Done Meeting", "time": "09:00", "date": today},
+                {"summary": "Later Event", "time": "16:00", "date": today},
+            ],
+            [],
+        )
+
+        with patch.object(widget, "_fetch_horizon_events", return_value=fetch_data):
+            widget._render_horizon_view(mock_display, 0, 0)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "Earlier" in calls_str
+
+    def test_renders_more_tomorrow_overflow(self, mock_display, widget):
+        """Should show '+ N more tomorrow' when too many tomorrow events."""
+        today = datetime.now().date()
+        tomorrow = today + timedelta(days=1)
+
+        tomorrow_events = [
+            {"summary": f"Tomorrow Event {i}", "time": f"{8+i}:00", "date": tomorrow}
+            for i in range(20)
+        ]
+        fetch_data = (
+            time(10, 30),
+            datetime.now().replace(hour=10, minute=30),
+            [{"summary": "Today Event", "time": "12:00", "date": today}],
+            tomorrow_events,
+        )
+
+        with patch.object(widget, "_fetch_horizon_events", return_value=fetch_data):
+            widget._render_horizon_view(mock_display, 0, 0)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "more tomorrow" in calls_str
+
+    def test_all_day_and_upcoming_together(self, mock_display, widget):
+        """Should render both all-day banner and upcoming events."""
+        today = datetime.now().date()
+        fetch_data = (
+            time(10, 30),
+            datetime.now().replace(hour=10, minute=30),
+            [
+                {"summary": "Spirit Day", "time": "All Day", "date": today},
+                {"summary": "Meeting", "time": "14:00", "date": today},
+            ],
+            [],
+        )
+
+        with patch.object(widget, "_fetch_horizon_events", return_value=fetch_data):
+            widget._render_horizon_view(mock_display, 0, 0)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "[ALL DAY]" in calls_str
+        assert "Spirit Day" in calls_str
+        assert "UP NEXT" in calls_str
+        assert "Meeting" in calls_str
+
+
+class TestHorizonViewHelperRenderers:
+    """Tests for individual horizon view rendering helpers."""
+
+    @pytest.fixture
+    def mock_display(self):
+        return Mock()
+
+    @pytest.fixture
+    def widget(self):
+        return CalendarWidget(Mock(), horizon_mode=True, available_height=480)
+
+    # _render_now_event tests
+
+    def test_render_now_event_draws_background(self, mock_display, widget):
+        """Should draw a highlighted background rectangle."""
+        today = datetime.now().date()
+        event = {"summary": "Meeting", "time": "10:00", "date": today}
+        now = datetime.now().replace(hour=10, minute=30)
+
+        widget._render_now_event(mock_display, 0, 0, event, now)
+
+        rect_calls = mock_display.draw_rectangle.call_args_list
+        assert len(rect_calls) == 1
+        assert rect_calls[0][1]["fill"] == "#F5F5F5"
+
+    def test_render_now_event_shows_now_badge(self, mock_display, widget):
+        """Should display the NOW badge text."""
+        today = datetime.now().date()
+        event = {"summary": "Meeting", "time": "10:00", "date": today}
+        now = datetime.now().replace(hour=10, minute=30)
+
+        widget._render_now_event(mock_display, 0, 0, event, now)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "NOW" in calls_str
+
+    def test_render_now_event_shows_summary(self, mock_display, widget):
+        """Should display the event summary."""
+        today = datetime.now().date()
+        event = {"summary": "Team Sync", "time": "10:00", "date": today}
+        now = datetime.now().replace(hour=10, minute=30)
+
+        widget._render_now_event(mock_display, 0, 0, event, now)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "Team Sync" in calls_str
+
+    def test_render_now_event_shows_location_when_enabled(self, mock_display):
+        """Should display location when show_locations is True."""
+        widget = CalendarWidget(Mock(), horizon_mode=True, show_locations=True)
+        today = datetime.now().date()
+        event = {
+            "summary": "Meeting",
+            "time": "10:00",
+            "date": today,
+            "location": "Room A",
+        }
+        now = datetime.now().replace(hour=10, minute=30)
+
+        widget._render_now_event(mock_display, 0, 0, event, now)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "Room A" in calls_str
+
+    def test_render_now_event_hides_location_by_default(self, mock_display, widget):
+        """Should not display location when show_locations is False."""
+        today = datetime.now().date()
+        event = {
+            "summary": "Meeting",
+            "time": "10:00",
+            "date": today,
+            "location": "Room A",
+        }
+        now = datetime.now().replace(hour=10, minute=30)
+
+        widget._render_now_event(mock_display, 0, 0, event, now)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "Room A" not in calls_str
+
+    def test_render_now_event_returns_advanced_y(self, mock_display, widget):
+        """Should return y_offset + 55."""
+        today = datetime.now().date()
+        event = {"summary": "Meeting", "time": "10:00", "date": today}
+        now = datetime.now().replace(hour=10, minute=30)
+
+        result_y = widget._render_now_event(mock_display, 0, 100, event, now)
+
+        assert result_y == 155
+
+    # _render_next_event_with_countdown tests
+
+    def test_render_next_event_shows_up_next(self, mock_display, widget):
+        """Should display UP NEXT label."""
+        today = datetime.now().date()
+        event = {"summary": "Lunch", "time": "12:00", "date": today}
+        now = datetime.combine(today, time(10, 30))
+
+        widget._render_next_event_with_countdown(mock_display, 0, 0, event, now)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "UP NEXT" in calls_str
+
+    def test_render_next_event_countdown_in_minutes(self, mock_display, widget):
+        """Should show countdown in minutes when less than 60 min away."""
+        today = datetime.now().date()
+        event = {"summary": "Quick Chat", "time": "10:45", "date": today}
+        now = datetime.combine(today, time(10, 30))
+
+        widget._render_next_event_with_countdown(mock_display, 0, 0, event, now)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "15 min" in calls_str
+
+    def test_render_next_event_countdown_in_hours(self, mock_display, widget):
+        """Should show countdown in hours and minutes when 60+ min away."""
+        today = datetime.now().date()
+        event = {"summary": "Afternoon Meeting", "time": "14:00", "date": today}
+        now = datetime.combine(today, time(10, 30))
+
+        widget._render_next_event_with_countdown(mock_display, 0, 0, event, now)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "3h 30m" in calls_str
+
+    def test_render_next_event_urgent_color(self, mock_display, widget):
+        """Should use orange color when event is less than 15 minutes away."""
+        today = datetime.now().date()
+        event = {"summary": "Soon", "time": "10:40", "date": today}
+        now = datetime.combine(today, time(10, 30))
+
+        widget._render_next_event_with_countdown(mock_display, 0, 0, event, now)
+
+        colors = [
+            call[1].get("color")
+            for call in mock_display.draw_text.call_args_list
+        ]
+        assert "#FF6600" in colors
+
+    def test_render_next_event_normal_color(self, mock_display, widget):
+        """Should use grey color when event is 15+ minutes away."""
+        today = datetime.now().date()
+        event = {"summary": "Later", "time": "12:00", "date": today}
+        now = datetime.combine(today, time(10, 30))
+
+        widget._render_next_event_with_countdown(mock_display, 0, 0, event, now)
+
+        # The countdown text should use grey, not orange
+        countdown_calls = [
+            call
+            for call in mock_display.draw_text.call_args_list
+            if "in " in call[1].get("text", "") and "min" in call[1].get("text", "")
+        ]
+        for call in countdown_calls:
+            assert call[1]["color"] != "#FF6600"
+
+    def test_render_next_event_returns_advanced_y(self, mock_display, widget):
+        """Should return y_offset + 50."""
+        today = datetime.now().date()
+        event = {"summary": "Event", "time": "12:00", "date": today}
+        now = datetime.combine(today, time(10, 30))
+
+        result_y = widget._render_next_event_with_countdown(
+            mock_display, 0, 50, event, now
+        )
+
+        assert result_y == 100
+
+    # _render_event_line_with_time_until tests
+
+    def test_render_event_line_with_time_until_shows_summary(
+        self, mock_display, widget
+    ):
+        """Should display event summary."""
+        today = datetime.now().date()
+        event = {"summary": "Meeting", "time": "14:00", "date": today}
+        now = datetime.combine(today, time(13, 30))
+
+        widget._render_event_line_with_time_until(mock_display, 0, 0, event, now)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "Meeting" in calls_str
+
+    def test_render_event_line_with_time_until_shows_minutes(
+        self, mock_display, widget
+    ):
+        """Should show 'in Xm' for events less than 60 minutes away."""
+        today = datetime.now().date()
+        event = {"summary": "Meeting", "time": "14:00", "date": today}
+        now = datetime.combine(today, time(13, 30))
+
+        widget._render_event_line_with_time_until(mock_display, 0, 0, event, now)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "30m" in calls_str
+
+    def test_render_event_line_with_time_until_urgent_color(
+        self, mock_display, widget
+    ):
+        """Should use orange color when less than 15 minutes away."""
+        today = datetime.now().date()
+        event = {"summary": "Urgent", "time": "13:40", "date": today}
+        now = datetime.combine(today, time(13, 30))
+
+        widget._render_event_line_with_time_until(mock_display, 0, 0, event, now)
+
+        time_until_calls = [
+            call
+            for call in mock_display.draw_text.call_args_list
+            if "10m" in call[1].get("text", "")
+        ]
+        assert len(time_until_calls) == 1
+        assert time_until_calls[0][1]["color"] == "#FF6600"
+
+    def test_render_event_line_with_time_until_hours(self, mock_display, widget):
+        """Should show 'in Xh' for events 60+ minutes away."""
+        today = datetime.now().date()
+        event = {"summary": "Later", "time": "16:00", "date": today}
+        now = datetime.combine(today, time(13, 30))
+
+        widget._render_event_line_with_time_until(mock_display, 0, 0, event, now)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "2h" in calls_str
+
+    # _render_all_day_banner tests
+
+    def test_render_all_day_banner_combines_names(self, mock_display, widget):
+        """Should combine all-day event names with bullet separator."""
+        events = [
+            {"summary": "Holiday"},
+            {"summary": "Spirit Day"},
+        ]
+
+        widget._render_all_day_banner(mock_display, 0, 0, events)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "[ALL DAY]" in calls_str
+        assert "Holiday" in calls_str
+        assert "Spirit Day" in calls_str
+
+    def test_render_all_day_banner_draws_background(self, mock_display, widget):
+        """Should draw a light grey background rectangle."""
+        events = [{"summary": "Holiday"}]
+
+        widget._render_all_day_banner(mock_display, 0, 0, events)
+
+        rect_calls = mock_display.draw_rectangle.call_args_list
+        assert len(rect_calls) == 1
+        assert rect_calls[0][1]["fill"] == "#F5F5F5"
+
+    def test_render_all_day_banner_returns_advanced_y(self, mock_display, widget):
+        """Should return y_offset + 25."""
+        events = [{"summary": "Holiday"}]
+
+        result_y = widget._render_all_day_banner(mock_display, 0, 100, events)
+
+        assert result_y == 125
+
+    # _render_section_header tests
+
+    def test_render_section_header(self, mock_display, widget):
+        """Should render section header text and return advanced y."""
+        result_y = widget._render_section_header(mock_display, 0, 0, "TOMORROW")
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "TOMORROW" in calls_str
+        assert result_y == 20
+
+    # _render_event_line tests
+
+    def test_render_event_line_shows_time_and_summary(self, mock_display, widget):
+        """Should render formatted time and event summary."""
+        event = {"summary": "Team Sync", "time": "14:00"}
+
+        widget._render_event_line(mock_display, 0, 0, event)
+
+        calls_str = str(mock_display.draw_text.call_args_list)
+        assert "Team Sync" in calls_str
+        assert "2:00PM" in calls_str
+
+    def test_render_event_line_compact_uses_smaller_font(self, mock_display, widget):
+        """Compact mode should use smaller font sizes."""
+        event = {"summary": "Event", "time": "14:00"}
+
+        widget._render_event_line(mock_display, 0, 0, event, compact=True)
+
+        font_sizes = [
+            call[1].get("font_size")
+            for call in mock_display.draw_text.call_args_list
+        ]
+        assert 11 in font_sizes  # compact time font
+        assert 12 in font_sizes  # compact summary font
+
+
+class TestParseTime:
+    """Tests for _parse_time method."""
+
+    @pytest.fixture
+    def widget(self):
+        return CalendarWidget(Mock())
+
+    def test_all_day_returns_none(self, widget):
+        assert widget._parse_time("All Day") is None
+
+    def test_12_hour_am(self, widget):
+        result = widget._parse_time("9:00AM")
+        assert result == time(9, 0)
+
+    def test_12_hour_pm(self, widget):
+        result = widget._parse_time("2:30PM")
+        assert result == time(14, 30)
+
+    def test_12_hour_with_space(self, widget):
+        result = widget._parse_time("9:00 AM")
+        assert result == time(9, 0)
+
+    def test_24_hour_format(self, widget):
+        result = widget._parse_time("14:30")
+        assert result == time(14, 30)
+
+    def test_invalid_format_returns_none(self, widget):
+        assert widget._parse_time("not-a-time") is None
+
+    def test_empty_string_returns_none(self, widget):
+        assert widget._parse_time("") is None
+
+
+class TestFormatTime:
+    """Tests for _format_time method."""
+
+    @pytest.fixture
+    def widget(self):
+        return CalendarWidget(Mock())
+
+    def test_all_day(self, widget):
+        assert widget._format_time("All Day") == "All Day"
+
+    def test_none_returns_all_day(self, widget):
+        assert widget._format_time(None) == "All Day"
+
+    def test_empty_string_returns_all_day(self, widget):
+        assert widget._format_time("") == "All Day"
+
+    def test_24_to_12_hour_pm(self, widget):
+        assert widget._format_time("14:30") == "2:30PM"
+
+    def test_24_to_12_hour_am(self, widget):
+        assert widget._format_time("09:00") == "9:00AM"
+
+    def test_midnight(self, widget):
+        assert widget._format_time("00:00") == "12:00AM"
+
+    def test_noon(self, widget):
+        assert widget._format_time("12:00") == "12:00PM"
+
+    def test_already_12_hour_format(self, widget):
+        assert widget._format_time("2:30PM") == "2:30PM"
+
+    def test_already_12_hour_with_space(self, widget):
+        assert widget._format_time("2:30 PM") == "2:30PM"
+
+
+class TestGetEventEndTime:
+    """Tests for _get_event_end_time method."""
+
+    @pytest.fixture
+    def widget(self):
+        return CalendarWidget(Mock())
+
+    def test_default_one_hour_duration(self, widget):
+        """Should default to 1 hour if no duration specified."""
+        event = {"summary": "Meeting", "time": "10:00"}
+        result = widget._get_event_end_time(event, time(10, 0))
+
+        assert result == time(11, 0)
+
+    def test_custom_duration_minutes(self, widget):
+        """Should use duration_minutes when provided."""
+        event = {"summary": "Long Meeting", "time": "10:00", "duration_minutes": 90}
+        result = widget._get_event_end_time(event, time(10, 0))
+
+        assert result == time(11, 30)
+
+    def test_short_duration(self, widget):
+        """Should handle short durations correctly."""
+        event = {"summary": "Quick Sync", "time": "10:00", "duration_minutes": 15}
+        result = widget._get_event_end_time(event, time(10, 0))
+
+        assert result == time(10, 15)
