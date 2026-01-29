@@ -249,7 +249,7 @@ class CalendarWidget(WidgetInterface):
 
             # Render day header - adjust day_offset for proper TODAY/TOMORROW labels
             display_day_offset = self.start_offset_days + day_offset
-            y_pos = self._render_day_header_inverted(
+            y_pos = self._render_inverted_header(
                 display,
                 current_date,
                 display_day_offset,
@@ -299,7 +299,7 @@ class CalendarWidget(WidgetInterface):
         y_pos = self.padding + y_offset
 
         # Render header
-        y_pos = self._render_header_inverted(display, today, x_pos, y_pos)
+        y_pos = self._render_inverted_header(display, today, x_pos, y_pos)
         y_pos += 15
 
         if not events:
@@ -387,7 +387,7 @@ class CalendarWidget(WidgetInterface):
 
         # Render header with white-on-black styling (ONLY IF show_header is True)
         if self.show_header:  # NEW
-            y_pos = self._render_header_inverted(display, today, x_pos, y_pos)
+            y_pos = self._render_inverted_header(display, today, x_pos, y_pos)
             y_pos += 15
 
         if not events:
@@ -440,72 +440,28 @@ class CalendarWidget(WidgetInterface):
             rendered_count += 1
 
     # ========== Header Rendering ==========
+    def _render_inverted_header(
+        self, display, date_obj: datetime, x_pos, y_pos, font_size=15, height=26
+    ):
+        date_obj = f" TODAY - {date_obj.strftime('%A, %b %d').upper()} "
 
-    def _render_header_inverted(
-        self, display, date_obj: datetime, x_pos: int, y_pos: int
-    ) -> int:
-        """Render white-on-black header for single day view."""
-        # Format header text
-        header_text = f" TODAY - {date_obj.strftime('%A, %b %d').upper()} "
-
-        # Draw black rectangle background (full width)
-        header_height = 28
         rect_width = self.width - 2 * self.padding + 10
         display.draw_rectangle(
             x_pos=x_pos - 10,
             y_pos=y_pos,
             width=rect_width,
-            height=header_height,
+            height=height,
             fill="#000000",
             outline="#000000",
         )
-
-        # Draw white text on black background
         display.draw_text(
-            x_pos=x_pos + 5,
-            y_pos=y_pos + 6,
-            text=header_text,
-            font_size=16,
-            color="#FFFFFF",
-        )
-
-        return y_pos + header_height
-
-    def _render_day_header_inverted(
-        self,
-        display,
-        date_obj: date,
-        day_offset: int,
-        x_pos: int,
-        y_pos: int,
-        font_size: int = 15,
-    ) -> int:
-        """Render compact white-on-black day header."""
-        # Format header text
-        header_text = self._format_day_header(date_obj, day_offset)
-
-        # Draw black rectangle background
-        header_height = 26
-        rect_width = self.width - 2 * self.padding + 10
-        display.draw_rectangle(
-            x_pos=x_pos - 10,
-            y_pos=y_pos,
-            width=rect_width,
-            height=header_height,
-            fill="#000000",
-            outline="#000000",
-        )
-
-        # Draw white text on black background
-        display.draw_text(
-            x_pos=x_pos + 5,
+            x_pos=x_pos + self.padding,
             y_pos=y_pos + 5,
-            text=header_text,
+            text=date_obj,
             font_size=font_size,
             color="#FFFFFF",
         )
-
-        return y_pos + header_height
+        return y_pos + height
 
     # ========== Event Rendering ==========
 

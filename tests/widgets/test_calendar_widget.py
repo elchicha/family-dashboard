@@ -63,7 +63,7 @@ class TestCalendarWidget:
         event_y_positions = {}  # summary -> y_position
         for call in calls:
             args, kwargs = call
-            text = kwargs.get("text", "")
+            text = str(kwargs.get("text", ""))
             y_pos = (
                 kwargs.get("y_pos")
                 if "y_pos" in kwargs
@@ -173,7 +173,7 @@ class TestCalendarWidgetEnhanced:
         location_x = None
 
         for call in calls:
-            text = call.kwargs.get("text", "")
+            text = str(call.kwargs.get("text", ""))
             x_pos = call.kwargs.get("x_pos", 0)
 
             if "Meeting" in text:
@@ -296,7 +296,7 @@ class TestCalendarWidgetEnhanced:
 
         # Extract text content from draw calls
         text_calls = [
-            call.kwargs.get("text", "")
+            str(call.kwargs.get("text", ""))
             for call in mock_display.draw_text.call_args_list
         ]
 
@@ -431,7 +431,7 @@ class TestCalendarWidgetThreeDayView:
 
         # Extract text content from draw calls
         text_calls = [
-            call.kwargs.get("text", "")
+            str(call.kwargs.get("text", ""))
             for call in mock_display.draw_text.call_args_list
         ]
 
