@@ -441,7 +441,13 @@ class CalendarWidget(WidgetInterface):
 
     # ========== Header Rendering ==========
     def _render_inverted_header(
-        self, display, date_obj: datetime, x_pos, y_pos, font_size=15, height=26
+        self,
+        display,
+        date_obj: Union[datetime, date],
+        x_pos,
+        y_pos,
+        font_size=15,
+        height=26,
     ):
         today = datetime.now().date()
 
