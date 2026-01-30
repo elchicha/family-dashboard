@@ -1,7 +1,7 @@
 """Adaptive calendar widget that intelligently fits all events without truncation."""
 
 from datetime import datetime, timedelta, date, time as time_class, time
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Union
 
 from src.display.display_interface import DisplayInterface
 from src.widgets.widget_interface import WidgetInterface
@@ -247,12 +247,9 @@ class CalendarWidget(WidgetInterface):
 
             all_day_events, timed_events = self._separate_all_day_events(day_events)
 
-            # Render day header - adjust day_offset for proper TODAY/TOMORROW labels
-            display_day_offset = self.start_offset_days + day_offset
             y_pos = self._render_inverted_header(
                 display,
                 current_date,
-                display_day_offset,
                 x_pos,
                 y_pos,
                 font_size_header,
@@ -471,7 +468,7 @@ class CalendarWidget(WidgetInterface):
         display.draw_text(
             x_pos=x_pos + self.padding,
             y_pos=y_pos + 5,
-            text=date_obj,
+            text=header_text,
             font_size=font_size,
             color="#FFFFFF",
         )

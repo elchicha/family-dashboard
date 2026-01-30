@@ -392,6 +392,29 @@ class TestCalendarWidgetThreeDayView:
         tomorrow = datetime.now() + timedelta(days=1)
         assert "TOMORROW" in calls_str or tomorrow.strftime("%A").upper() in calls_str
 
+    def test_multi_day_headers_show_correct_day_labels(
+        self, mock_display, mock_calendar_service_multi_day
+    ):
+        """Headers should say TODAY, TOMORROW, and weekday name — not always TODAY."""
+        widget = CalendarWidget(
+            calendar_service=mock_calendar_service_multi_day,
+            view_mode="three_day",
+            available_height=480,
+        )
+
+        widget.render(display=mock_display, x_offset=0, y_offset=0)
+        calls_str = str(mock_display.draw_text.call_args_list)
+
+        # Should have TODAY for the first day
+        assert "TODAY" in calls_str
+
+        # Should have TOMORROW for the second day — NOT another TODAY
+        assert "TOMORROW" in calls_str
+
+        # Count how many times TODAY appears — should be exactly once (in the header)
+        today_count = calls_str.count("TODAY")
+        assert today_count == 1, f"TODAY should appear once, but appeared {today_count} times"
+
     def test_adaptive_mode_chooses_appropriate_layout(
         self, mock_display, mock_calendar_service_multi_day
     ):
