@@ -443,7 +443,15 @@ class CalendarWidget(WidgetInterface):
     def _render_inverted_header(
         self, display, date_obj: datetime, x_pos, y_pos, font_size=15, height=26
     ):
-        date_obj = f" TODAY - {date_obj.strftime('%A, %b %d').upper()} "
+        today = datetime.now().date()
+
+        if isinstance(date_obj, datetime):
+            date_only = date_obj.date()
+        else:
+            date_only = date_obj
+
+        day_offset = (date_only - today).days
+        header_text = self._format_day_header(date_obj, day_offset)
 
         rect_width = self.width - 2 * self.padding + 10
         display.draw_rectangle(
